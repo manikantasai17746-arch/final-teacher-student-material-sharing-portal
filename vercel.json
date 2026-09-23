@@ -1,13 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm install --no-audit --no-fund",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/server.js" }
-  ],
   "functions": {
     "server.js": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 60
     }
   }
 }
