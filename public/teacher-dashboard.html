@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teacher Dashboard — EduVault · Aditya University</title>
+<link rel="stylesheet" href="/css/style.css">
+<script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" style="text-decoration:none;"><div class="brand"><img src="/aditya-logo.png" alt="Aditya University" class="brand-logo"><div class="brand-text"><span class="app">EduVault</span></div></div></a>
+  <nav>
+    <a href="/id-card.html">My ID Card</a>
+    <span class="who" id="whoLabel"></span>
+    <button class="btn-ghost-topbar" id="logoutBtn">Log Out</button>
+  </nav>
+</div>
+
+<div class="page">
+  <div class="eyebrow">Faculty Dashboard</div>
+  <h2 id="greeting">Your Material</h2>
+  <p class="subtitle">Upload once — every student who selects your Employee ID sees it, from day one, for as long as it's here.</p>
+
+  <div id="cardBanner"></div>
+
+  <div class="grid-2" id="statRow" style="margin-bottom:1.8rem;"></div>
+
+  <div class="card">
+    <div class="section-title"><h2>Upload New Material</h2></div>
+    <div id="uploadAlert"></div>
+    <form id="uploadForm">
+      <div class="field-row">
+        <div class="field">
+          <label>Subject</label>
+          <input type="text" id="subject" placeholder="e.g. Database Management Systems" required>
+        </div>
+        <div class="field">
+          <label>Unit / Topic</label>
+          <input type="text" id="unit" placeholder="e.g. Unit 3 — Normalization">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Title</label>
+          <input type="text" id="title" placeholder="e.g. Normal Forms — Slides" required>
+        </div>
+        <div class="field">
+          <label>Semester</label>
+          <input type="text" id="semester" placeholder="e.g. Semester 4">
+        </div>
+      </div>
+      <div class="field">
+        <label>
+  File (PDF, PPT/PPTX, DOC/DOCX, TXT, CSV, XLS/XLSX, ZIP, RAR, 7Z,
+  JPG, PNG, GIF, WEBP, MP3, WAV, MP4, WEBM — max 200MB)
+</label>
+        <input
+  type="file"
+  id="file"
+  accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.csv,.xls,.xlsx,.zip,.rar,.7z,.jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.mp4,.webm,.py,.java,.cpp,.c"
+  required
+>
+      </div>
+      <button type="submit" class="btn btn-accent" id="uploadBtn">Upload Material</button>
+
+      <div id="uploadProgressWrap" style="display:none;">
+        <div class="progress-track">
+          <div class="progress-fill" id="uploadProgressFill"></div>
+        </div>
+        <div class="progress-label">
+          <span id="uploadProgressText">0%</span>
+          <span id="uploadProgressSpeed"></span>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Google Drive connection -->
+  <div class="card" id="gdriveCard">
+    <div class="section-title"><h2>Google Drive</h2></div>
+    <p class="subtitle" style="margin-top:0;">Store materials and student submissions in your own Google Drive. EduVault never asks for your Google password — you authorize once with Google.</p>
+    <div id="gdriveStatus" style="margin:0.8rem 0;"></div>
+    <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+      <button type="button" class="btn btn-accent" id="gdriveConnectBtn">Connect Google Drive</button>
+      <button type="button" class="btn btn-outline" id="gdriveDisconnectBtn" style="display:none;">Disconnect</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Submission Requests -->
+  <div class="card">
+    <div class="section-title">
+      <h2>Submission Requests</h2>
+      <button type="button" class="btn btn-accent btn-sm" id="createRequestBtn">+ Create Request</button>
+    </div>
+    <p class="subtitle" style="margin-top:0;">Create a form (like Microsoft Forms) and share a link. Students submit files that go into your Google Drive under <em>EduVault / Submissions</em>.</p>
+    <div id="requestList" style="margin-top:1rem;"></div>
+  </div>
+
+  <!-- Create / edit request modal -->
+  <div id="requestModal" style="display:none;position:fixed;inset:0;background:rgba(15,20,25,0.45);z-index:1000;align-items:center;justify-content:center;padding:1rem;">
+    <div class="card" style="max-width:640px;width:100%;max-height:90vh;overflow:auto;margin:0;">
+      <div class="section-title"><h2 id="requestModalTitle">Create Submission Request</h2></div>
+      <div id="requestFormAlert"></div>
+      <form id="requestForm">
+        <input type="hidden" id="editRequestId" value="">
+        <div class="field">
+          <label>Title *</label>
+          <input type="text" id="reqTitle" placeholder="e.g. DBMS Unit 3 Assignment" required>
+        </div>
+        <div class="field">
+          <label>Description</label>
+          <textarea id="reqDesc" rows="2" placeholder="Upload your completed assignment."></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Deadline</label>
+            <input type="datetime-local" id="reqDeadline">
+          </div>
+          <div class="field">
+            <label>Max files</label>
+            <input type="number" id="reqMaxFiles" min="1" max="10" value="1">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Max file size (MB)</label>
+            <input type="number" id="reqMaxSize" min="1" max="200" value="25">
+          </div>
+          <div class="field">
+            <label>Allow multiple submissions</label>
+            <select id="reqAllowMultiple">
+              <option value="false">One per student (replace allowed)</option>
+              <option value="true">Multiple allowed</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Allowed extensions</label>
+          <input type="text" id="reqExt" value=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.zip">
+        </div>
+        <div class="section-title" style="margin-top:1rem;"><h3 style="font-size:1rem;">Form fields</h3></div>
+        <div id="fieldBuilder"></div>
+        <button type="button" class="btn btn-outline btn-sm" id="addFieldBtn" style="margin:0.5rem 0;">+ Add Field</button>
+        <div style="display:flex;gap:0.6rem;margin-top:1rem;flex-wrap:wrap;">
+          <button type="submit" class="btn btn-accent" id="saveRequestBtn">Save Request</button>
+          <button type="button" class="btn btn-outline" id="cancelRequestBtn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Submissions viewer modal -->
+  <div id="subsModal" style="display:none;position:fixed;inset:0;background:rgba(15,20,25,0.45);z-index:1000;align-items:center;justify-content:center;padding:1rem;">
+    <div class="card" style="max-width:900px;width:100%;max-height:90vh;overflow:auto;margin:0;">
+      <div class="section-title">
+        <h2 id="subsModalTitle">Submissions</h2>
+        <button type="button" class="btn btn-outline btn-sm" id="closeSubsBtn">Close</button>
+      </div>
+      <div id="subsTableWrap"></div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-title">
+    <h2>Your Uploaded Material</h2>
+    <span class="pill" id="countPill">0 files</span>
+  </div>
+  <div id="materialList"></div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/scanner.js"></script>
+<script>
+const teacher = requireTeacher();
+if (teacher && teacher.role === "admin") {
+  // Admins have their own dashboard -- send them there instead (e.g. if
+  // they land here via a bookmark or the back button).
+  window.location.href = "/admin-dashboard.html";
+}
+document.getElementById("whoLabel").textContent = `${teacher.name} · ${teacher.emp_id}`;
+document.getElementById("greeting").textContent = `Welcome, ${teacher.name.split(" ")[0] || teacher.name}`;
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  clearTeacher();
+  window.location.href = "/";
+});
+
+document.getElementById("cardBanner").innerHTML = `
+  <div class="alert alert-success">
+    Tip: On the login page, tap "Scan ID Card" and hold up your staff ID — since it's issued for
+    Employee ID <strong>${escapeHtml(teacher.emp_id)}</strong>, it'll log you in instantly, no password needed.
+  </div>`;
+
+async function loadMaterials() {
+  try {
+    const { materials } = await api(`/teachers/${encodeURIComponent(teacher.emp_id)}/analytics`);
+    renderStats(materials);
+    renderList(materials);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function renderStats(materials) {
+  const totalAccess = materials.reduce((sum, m) => sum + (m.access_count || 0), 0);
+  const subjects = new Set(materials.map((m) => m.subject)).size;
+  document.getElementById("statRow").innerHTML = `
+    <div class="stat-box"><div class="num">${materials.length}</div><div class="lbl">Files uploaded</div></div>
+    <div class="stat-box"><div class="num">${subjects}</div><div class="lbl">Subjects covered</div></div>
+    <div class="stat-box"><div class="num">${totalAccess}</div><div class="lbl">Total student accesses</div></div>
+  `;
+}
+
+function renderList(materials) {
+  document.getElementById("countPill").textContent = `${materials.length} file${materials.length === 1 ? "" : "s"}`;
+  const container = document.getElementById("materialList");
+  if (materials.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="icon">＋</div>Nothing uploaded yet. Add your first file above.</div>`;
+    return;
+  }
+  container.innerHTML = materials.map((m) => `
+    <div class="index-card">
+      <div class="badge">${fileIcon(m.original_name)}</div>
+      <div class="meta">
+        <div class="title">${escapeHtml(m.title)}</div>
+        <div class="sub">${escapeHtml(m.subject)}${m.unit ? " · " + escapeHtml(m.unit) : ""}${m.semester ? " · " + escapeHtml(m.semester) : ""} · Uploaded ${fmtDate(m.upload_date)} · ${m.access_count} view${m.access_count === 1 ? "" : "s"}</div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-outline btn-sm" href="/api/materials/view/${m.material_id}?token=${encodeURIComponent(getTeacherToken())}" target="_blank" rel="noopener noreferrer">View</a>
+        <button class="btn btn-danger btn-sm" onclick="removeMaterial('${m.material_id}')">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function removeMaterial(id) {
+  if (!confirm("Delete this material? This cannot be undone.")) return;
+  try {
+    await api(`/materials/${id}`, { method: "DELETE", body: {} });
+    toast("Material deleted.");
+    loadMaterials();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const alertBox = document.getElementById("uploadAlert");
+  const btn = document.getElementById("uploadBtn");
+  alertBox.innerHTML = "";
+  const fileInput = document.getElementById("file");
+  if (!fileInput.files.length) {
+    alertBox.innerHTML = `<div class="alert alert-error">Please choose a file.</div>`;
+    return;
+  }
+  const fd = new FormData();
+  fd.append("subject", document.getElementById("subject").value.trim());
+  fd.append("unit", document.getElementById("unit").value.trim());
+  fd.append("title", document.getElementById("title").value.trim());
+  fd.append("semester", document.getElementById("semester").value.trim());
+  fd.append("file", fileInput.files[0]);
+
+  const wrap = document.getElementById("uploadProgressWrap");
+  const fill = document.getElementById("uploadProgressFill");
+  const pctText = document.getElementById("uploadProgressText");
+  const speedText = document.getElementById("uploadProgressSpeed");
+
+  btn.disabled = true;
+  btn.textContent = "Uploading…";
+  wrap.style.display = "block";
+  fill.style.width = "0%";
+  pctText.textContent = "0%";
+  speedText.textContent = "";
+
+  const startTime = performance.now();
+
+  try {
+    await apiUpload("/materials/upload", fd, ({ loaded, total, percent }) => {
+      fill.style.width = percent.toFixed(0) + "%";
+      pctText.textContent = percent.toFixed(0) + "%";
+
+      const elapsedSec = (performance.now() - startTime) / 1000;
+      if (elapsedSec > 0.2) {
+        const bytesPerSec = loaded / elapsedSec;
+        speedText.textContent = `${formatBytes(bytesPerSec)}/s · ${formatBytes(loaded)} of ${formatBytes(total)}`;
+      }
+    });
+    fill.style.width = "100%";
+    pctText.textContent = "100%";
+    toast("Material uploaded.");
+    document.getElementById("uploadForm").reset();
+    loadMaterials();
+  } catch (err) {
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Upload Material";
+    setTimeout(() => { wrap.style.display = "none"; }, 900);
+  }
+});
+
+loadMaterials();
+
+// ---------------------------------------------------------------------------
+// Google Drive
+// ---------------------------------------------------------------------------
+async function loadGdriveStatus() {
+  const el = document.getElementById("gdriveStatus");
+  const connectBtn = document.getElementById("gdriveConnectBtn");
+  const disconnectBtn = document.getElementById("gdriveDisconnectBtn");
+  try {
+    const st = await api("/google-drive/status");
+    if (!st.configured) {
+      el.innerHTML = `<div class="alert alert-error">Google Drive is not configured on this server yet. The administrator must set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI (see GOOGLE_DRIVE_SETUP.md).</div>`;
+      connectBtn.disabled = true;
+      disconnectBtn.style.display = "none";
+      return;
+    }
+    if (st.connected) {
+      el.innerHTML = `<div class="alert alert-success">Google Drive: Connected ✓${st.google_email ? " · " + escapeHtml(st.google_email) : ""}</div>`;
+      connectBtn.style.display = "none";
+      disconnectBtn.style.display = "";
+    } else {
+      el.innerHTML = `<div class="alert">Not connected. Connect to store materials and submissions in your Drive.</div>`;
+      connectBtn.style.display = "";
+      connectBtn.disabled = false;
+      disconnectBtn.style.display = "none";
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+document.getElementById("gdriveConnectBtn").addEventListener("click", async () => {
+  try {
+    const token = getTeacherToken();
+    // Navigate so Google can redirect back
+    window.location.href = `/api/google-drive/auth?token=${encodeURIComponent(token)}&redirect=1`;
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+document.getElementById("gdriveDisconnectBtn").addEventListener("click", async () => {
+  if (!confirm("Disconnect Google Drive? Existing files in Drive are not deleted.")) return;
+  try {
+    await api("/google-drive/disconnect", { method: "POST" });
+    toast("Google Drive disconnected.");
+    loadGdriveStatus();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+// Show toast from OAuth callback
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("gdrive") === "connected") {
+    toast("Google Drive connected successfully.");
+    history.replaceState({}, "", "/teacher-dashboard.html");
+  } else if (params.get("gdrive") === "error") {
+    toast(params.get("msg") || "Google Drive connection failed.", true);
+    history.replaceState({}, "", "/teacher-dashboard.html");
+  }
+})();
+
+loadGdriveStatus();
+
+// ---------------------------------------------------------------------------
+// Submission requests
+// ---------------------------------------------------------------------------
+let fieldCounter = 0;
+
+function defaultFields() {
+  return [
+    { field_type: "student_name", label: "Student Name", required: true },
+    { field_type: "roll_number", label: "Roll Number", required: true },
+    { field_type: "section", label: "Section", required: false },
+    { field_type: "file_upload", label: "Upload File", required: true },
+  ];
+}
+
+function renderFieldBuilder(fields) {
+  const box = document.getElementById("fieldBuilder");
+  box.innerHTML = "";
+  (fields || []).forEach((f, idx) => {
+    const id = "fld_" + (fieldCounter++);
+    const row = document.createElement("div");
+    row.className = "field-row field-builder-row";
+    row.dataset.idx = idx;
+    row.innerHTML = `
+      <div class="field" style="flex:2;">
+        <label>Label</label>
+        <input type="text" class="fld-label" value="${escapeHtml(f.label || "")}" required>
+      </div>
+      <div class="field" style="flex:1.2;">
+        <label>Type</label>
+        <select class="fld-type">
+          <option value="short_text" ${f.field_type === "short_text" ? "selected" : ""}>Short text</option>
+          <option value="long_text" ${f.field_type === "long_text" ? "selected" : ""}>Long text</option>
+          <option value="student_name" ${f.field_type === "student_name" ? "selected" : ""}>Student name</option>
+          <option value="roll_number" ${f.field_type === "roll_number" ? "selected" : ""}>Roll number</option>
+          <option value="section" ${f.field_type === "section" ? "selected" : ""}>Section</option>
+          <option value="file_upload" ${f.field_type === "file_upload" ? "selected" : ""}>File upload</option>
+        </select>
+      </div>
+      <div class="field" style="flex:0.6;">
+        <label>Required</label>
+        <select class="fld-req">
+          <option value="true" ${f.required !== false ? "selected" : ""}>Yes</option>
+          <option value="false" ${f.required === false ? "selected" : ""}>No</option>
+        </select>
+      </div>
+      <div class="field" style="flex:0.4;align-self:end;">
+        <button type="button" class="btn btn-danger btn-sm fld-remove">✕</button>
+      </div>`;
+    box.appendChild(row);
+    row.querySelector(".fld-remove").addEventListener("click", () => row.remove());
+  });
+}
+
+function collectFields() {
+  return [...document.querySelectorAll(".field-builder-row")].map((row, i) => ({
+    label: row.querySelector(".fld-label").value.trim(),
+    field_type: row.querySelector(".fld-type").value,
+    required: row.querySelector(".fld-req").value === "true",
+    display_order: i,
+  }));
+}
+
+document.getElementById("addFieldBtn").addEventListener("click", () => {
+  renderFieldBuilder([...collectFields(), { field_type: "short_text", label: "New field", required: false }]);
+});
+
+function openRequestModal(existing) {
+  document.getElementById("requestModal").style.display = "flex";
+  document.getElementById("requestFormAlert").innerHTML = "";
+  if (existing) {
+    document.getElementById("requestModalTitle").textContent = "Edit Submission Request";
+    document.getElementById("editRequestId").value = existing.request_id;
+    document.getElementById("reqTitle").value = existing.title || "";
+    document.getElementById("reqDesc").value = existing.description || "";
+    document.getElementById("reqDeadline").value = existing.deadline
+      ? new Date(existing.deadline).toISOString().slice(0, 16)
+      : "";
+    document.getElementById("reqMaxFiles").value = existing.max_files || 1;
+    document.getElementById("reqMaxSize").value = existing.max_file_size_mb || 25;
+    document.getElementById("reqAllowMultiple").value = existing.allow_multiple ? "true" : "false";
+    document.getElementById("reqExt").value = existing.allowed_extensions || "";
+    renderFieldBuilder(existing.fields && existing.fields.length ? existing.fields : defaultFields());
+  } else {
+    document.getElementById("requestModalTitle").textContent = "Create Submission Request";
+    document.getElementById("editRequestId").value = "";
+    document.getElementById("requestForm").reset();
+    document.getElementById("reqMaxFiles").value = 1;
+    document.getElementById("reqMaxSize").value = 25;
+    document.getElementById("reqExt").value = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.zip";
+    renderFieldBuilder(defaultFields());
+  }
+}
+
+document.getElementById("createRequestBtn").addEventListener("click", () => openRequestModal(null));
+document.getElementById("cancelRequestBtn").addEventListener("click", () => {
+  document.getElementById("requestModal").style.display = "none";
+});
+
+document.getElementById("requestForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const alertBox = document.getElementById("requestFormAlert");
+  const body = {
+    title: document.getElementById("reqTitle").value.trim(),
+    description: document.getElementById("reqDesc").value.trim(),
+    deadline: document.getElementById("reqDeadline").value || null,
+    max_files: parseInt(document.getElementById("reqMaxFiles").value, 10) || 1,
+    max_file_size_mb: parseInt(document.getElementById("reqMaxSize").value, 10) || 25,
+    allow_multiple: document.getElementById("reqAllowMultiple").value === "true",
+    allowed_extensions: document.getElementById("reqExt").value.trim(),
+    fields: collectFields(),
+  };
+  const editId = document.getElementById("editRequestId").value;
+  try {
+    if (editId) {
+      await api(`/submissions/requests/${encodeURIComponent(editId)}`, {
+        method: "PATCH",
+        body,
+      });
+      toast("Request updated.");
+    } else {
+      await api("/submissions/requests", {
+        method: "POST",
+        body,
+      });
+      toast("Submission request created.");
+    }
+    document.getElementById("requestModal").style.display = "none";
+    loadRequests();
+  } catch (err) {
+    alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+});
+
+async function loadRequests() {
+  const box = document.getElementById("requestList");
+  try {
+    const { requests } = await api("/submissions/requests");
+    if (!requests || !requests.length) {
+      box.innerHTML = `<div class="empty"><div class="icon">📋</div>No submission requests yet. Create one to collect student work.</div>`;
+      return;
+    }
+    box.innerHTML = requests
+      .map((r) => {
+        const link = `${window.location.origin}/submit/${encodeURIComponent(r.public_token)}`;
+        const deadline = r.deadline ? new Date(r.deadline).toLocaleString() : "No deadline";
+        const status = r.active ? "Active" : "Disabled";
+        return `<div class="index-card">
+          <div class="badge">📋</div>
+          <div class="meta">
+            <div class="title">${escapeHtml(r.title)}</div>
+            <div class="sub">Deadline: ${escapeHtml(deadline)} · Submissions: ${r.submission_count || 0} · ${status}</div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-outline btn-sm" onclick="viewSubs('${r.request_id}','${escapeHtml(r.title)}')">View Submissions</button>
+            <button class="btn btn-outline btn-sm" onclick="copyLink('${link}')">Copy Link</button>
+            <button class="btn btn-outline btn-sm" onclick="editRequest('${r.request_id}')">Edit</button>
+            <button class="btn btn-outline btn-sm" onclick="toggleRequest('${r.request_id}', ${r.active ? "false" : "true"})">${r.active ? "Disable" : "Enable"}</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+  } catch (err) {
+    box.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+window.copyLink = function (url) {
+  navigator.clipboard.writeText(url).then(
+    () => toast("Link copied."),
+    () => prompt("Copy this link:", url)
+  );
+};
+
+window.editRequest = async function (id) {
+  try {
+    const { request } = await api(`/submissions/requests/${encodeURIComponent(id)}`);
+    openRequestModal(request);
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
+window.toggleRequest = async function (id, active) {
+  try {
+    await api(`/submissions/requests/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: { active },
+    });
+    loadRequests();
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
+window._subsContext = { requestId: null, title: null, rows: [], index: 0 };
+
+window.viewSubs = async function (id, title) {
+  const modal = document.getElementById("subsModal");
+  document.getElementById("subsModalTitle").textContent = title || "Submissions";
+  const wrap = document.getElementById("subsTableWrap");
+  wrap.innerHTML = "Loading…";
+  modal.style.display = "flex";
+  try {
+    const data = await api(`/submissions/requests/${encodeURIComponent(id)}/submissions`);
+    const rows = data.submissions || [];
+    window._subsContext = { requestId: id, title: title || "Submissions", rows, index: 0 };
+    if (!rows.length) {
+      wrap.innerHTML = `<div class="empty">No submissions yet.</div>
+        <div style="margin-top:1rem;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="archiveRequest('${id}')">Archive &amp; Free Drive Space</button>
+        </div>`;
+      return;
+    }
+    wrap.innerHTML = `
+      <p class="subtitle">Total: ${rows.length}</p>
+      <div style="margin-bottom:0.8rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="archiveRequest('${id}')">Archive &amp; Free Drive Space</button>
+      </div>
+      <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.92rem;">
+        <thead><tr>
+          <th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--line);">Student</th>
+          <th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--line);">Roll Number</th>
+          <th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--line);">Submitted</th>
+          <th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--line);">Files</th>
+          <th style="text-align:left;padding:0.5rem;border-bottom:1px solid var(--line);">Actions</th>
+        </tr></thead>
+        <tbody>
+          ${rows
+            .map(
+              (s, i) => `<tr>
+            <td style="padding:0.5rem;border-bottom:1px solid var(--line);">${escapeHtml(s.student_name || "—")}</td>
+            <td style="padding:0.5rem;border-bottom:1px solid var(--line);">${escapeHtml(s.roll_no || "—")}</td>
+            <td style="padding:0.5rem;border-bottom:1px solid var(--line);">${escapeHtml(new Date(s.submitted_at).toLocaleString())}</td>
+            <td style="padding:0.5rem;border-bottom:1px solid var(--line);">${s.file_count || 0}</td>
+            <td style="padding:0.5rem;border-bottom:1px solid var(--line);">
+              <button class="btn btn-outline btn-sm" onclick="viewSubAt(${i})">View</button>
+            </td>
+          </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table></div>
+      <div id="subDetailBox" style="margin-top:1rem;"></div>`;
+  } catch (err) {
+    wrap.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+};
+
+window.viewSubAt = async function (index) {
+  const ctx = window._subsContext;
+  if (!ctx || !ctx.rows.length) return;
+  if (index < 0 || index >= ctx.rows.length) return;
+  ctx.index = index;
+  const sub = ctx.rows[index];
+  await window.viewSubDetail(sub.submission_id, index);
+};
+
+window.viewSubDetail = async function (submissionId, indexOpt) {
+  const box = document.getElementById("subDetailBox");
+  if (!box) return;
+  const ctx = window._subsContext || { rows: [] };
+  let index = typeof indexOpt === "number" ? indexOpt : ctx.rows.findIndex((r) => r.submission_id === submissionId);
+  if (index < 0) index = 0;
+  ctx.index = index;
+  const total = ctx.rows.length || 1;
+  const token = encodeURIComponent(getTeacherToken());
+
+  try {
+    const data = await api(`/submissions/${encodeURIComponent(submissionId)}/detail`);
+    const files = data.files || [];
+    let answers = data.submission.answers_json || {};
+    if (typeof answers === "string") {
+      try { answers = JSON.parse(answers); } catch (_) {}
+    }
+    const sub = data.submission;
+    const name = escapeHtml(sub.student_name || "Student");
+    const roll = escapeHtml(sub.roll_no || "—");
+
+    const previewHtml = files.map((f) => {
+      const ext = (f.original_name || "").split(".").pop().toLowerCase();
+      const dl = `/api/submissions/files/${encodeURIComponent(f.file_id)}/download?token=${token}`;
+      const view = `/api/submissions/files/${encodeURIComponent(f.file_id)}/view?token=${token}`;
+      const size = f.size_bytes ? (f.size_bytes / 1024).toFixed(1) + " KB" : "";
+      const canPreview = ["pdf", "jpg", "jpeg", "png", "gif", "webp"].includes(ext);
+      let body = "";
+      if (ext === "pdf") {
+        body = `<iframe src="${view}" style="width:100%;height:480px;border:1px solid var(--line);border-radius:8px;" title="PDF preview"></iframe>`;
+      } else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+        body = `<img src="${view}" alt="${escapeHtml(f.original_name)}" style="max-width:100%;max-height:480px;border-radius:8px;border:1px solid var(--line);"/>`;
+      } else {
+        body = `<div class="alert">Preview not available for .${escapeHtml(ext || "?")} files. Use Download.</div>
+          <p class="subtitle">${escapeHtml(f.original_name || "")} ${size ? "· " + size : ""} · ${escapeHtml(f.mime_type || "")}</p>`;
+      }
+      return `<div style="margin:0.8rem 0;">
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.4rem;">
+          <strong>${escapeHtml(f.original_name || "file")}</strong>
+          <a class="btn btn-outline btn-sm" href="${dl}" target="_blank" rel="noopener">Download</a>
+          ${canPreview ? "" : `<a class="btn btn-outline btn-sm" href="${dl}" target="_blank" rel="noopener">Open</a>`}
+        </div>
+        ${body}
+      </div>`;
+    }).join("") || "<p class=\"subtitle\">No files (may have been archived from Drive).</p>";
+
+    box.innerHTML = `
+      <div class="card" style="background:var(--bg);">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">
+          <button type="button" class="btn btn-outline btn-sm" ${index <= 0 ? "disabled" : ""} onclick="viewSubAt(${index - 1})">&lt; Previous</button>
+          <span class="pill">${name} (${roll}) · ${index + 1} of ${total}</span>
+          <button type="button" class="btn btn-outline btn-sm" ${index >= total - 1 ? "disabled" : ""} onclick="viewSubAt(${index + 1})">Next &gt;</button>
+        </div>
+        <strong>Answers</strong>
+        <pre style="white-space:pre-wrap;font-size:0.85rem;">${escapeHtml(JSON.stringify(answers, null, 2))}</pre>
+        <strong>Files</strong>
+        ${previewHtml}
+      </div>`;
+  } catch (err) {
+    box.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+  }
+};
+
+window.archiveRequest = async function (requestId) {
+  const choice = confirm(
+    "Do you want to create a backup before deleting these student files from Google Drive?\\n\\n" +
+    "OK = Create Backup & Delete (ZIP download, then remove Drive files)\\n" +
+    "Cancel = see next options"
+  );
+  let mode = null;
+  if (choice) {
+    mode = "backup_delete";
+  } else {
+    const del = confirm(
+      "Delete Without Backup?\\n\\n" +
+      "This will remove student-uploaded files for this request from Google Drive. EduVault submission records will remain.\\n\\n" +
+      "OK = Delete Without Backup\\nCancel = Cancel"
+    );
+    if (!del) return;
+    const sure = confirm("Final confirmation: permanently delete these student files from Google Drive without a backup?");
+    if (!sure) return;
+    mode = "delete_only";
+  }
+
+  try {
+    if (mode === "backup_delete") {
+      toast("Creating backup… this may take a moment.");
+      const token = getTeacherToken();
+      const res = await fetch(`/api/submissions/requests/${encodeURIComponent(requestId)}/archive`, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mode }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Archive failed.");
+      }
+      const blob = await res.blob();
+      const deleted = res.headers.get("X-EduVault-Deleted") || "?";
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "EduVault_Archive.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast(`Backup downloaded successfully. ${deleted} student file(s) were removed from Google Drive.`);
+      if (window._subsContext && window._subsContext.requestId === requestId) {
+        viewSubs(requestId, window._subsContext.title);
+      }
+    } else {
+      const data = await api(`/submissions/requests/${encodeURIComponent(requestId)}/archive`, {
+        method: "POST",
+        body: { mode },
+      });
+      toast(data.message || "Done.");
+      if (data.failed && data.failed.length) {
+        toast(`${data.failed.length} file(s) could not be deleted.`, true);
+      }
+      if (window._subsContext && window._subsContext.requestId === requestId) {
+        viewSubs(requestId, window._subsContext.title);
+      }
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
+document.getElementById("closeSubsBtn").addEventListener("click", () => {
+  document.getElementById("subsModal").style.display = "none";
+});
+
+loadRequests();
+</script>
+</body>
+</html>

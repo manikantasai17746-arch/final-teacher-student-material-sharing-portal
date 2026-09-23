@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Submit Assignment — EduVault · Aditya University</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/" style="text-decoration:none;"><div class="brand"><img src="/aditya-logo.png" alt="Aditya University" class="brand-logo"><div class="brand-text"><span class="app">EduVault</span></div></div></a>
+  <nav>
+    <a href="/student-portal.html">Student Portal</a>
+  </nav>
+</div>
+
+<div class="page" style="max-width:640px;">
+  <div class="eyebrow">Student Submission</div>
+  <div id="formRoot">
+    <p class="subtitle">Loading form…</p>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+(function () {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  // /submit/<token>
+  const token = parts[0] === "submit" ? parts[1] : null;
+  if (!token) {
+    document.getElementById("formRoot").innerHTML =
+      `<div class="alert alert-error">Invalid submission link.</div>`;
+    return;
+  }
+
+  const root = document.getElementById("formRoot");
+  let formMeta = null;
+  let studentPrefill = null;
+
+  async function loadForm() {
+    try {
+      const headers = {};
+      const st = getStudentToken && getStudentToken();
+      if (st) headers["Authorization"] = "Bearer " + st;
+      const res = await fetch(`/api/submissions/form/${encodeURIComponent(token)}`, { headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not load form.");
+      formMeta = data.form;
+      studentPrefill = data.student;
+      renderForm();
+    } catch (err) {
+      root.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderForm() {
+    if (formMeta.closed) {
+      root.innerHTML = `
+        <h2>${escapeHtml(formMeta.title)}</h2>
+        <div class="alert alert-error">Submission closed.${formMeta.deadline ? " Deadline was " + escapeHtml(new Date(formMeta.deadline).toLocaleString()) + "." : ""}</div>
+      `;
+      return;
+    }
+
+    const fieldsHtml = (formMeta.fields || [])
+      .map((f) => {
+        if (f.field_type === "file_upload" || f.field_type === "file") {
+          return `
+            <div class="field">
+              <label>${escapeHtml(f.label)}${f.required ? " *" : ""}</label>
+              <input type="file" name="files" ${formMeta.max_files > 1 ? "multiple" : ""}
+                accept="${escapeHtml(formMeta.allowed_extensions || "")}"
+                ${f.required ? "required" : ""} data-field-id="${escapeHtml(f.field_id)}">
+              <p class="subtitle" style="font-size:0.8rem;margin:0.3rem 0 0;">
+                Max ${formMeta.max_files} file(s), ${formMeta.max_file_size_mb} MB each.
+                Allowed: ${escapeHtml(formMeta.allowed_extensions || "")}
+              </p>
+            </div>`;
+        }
+        const isLong = f.field_type === "long_text";
+        let value = "";
+        if (studentPrefill) {
+          if (f.field_type === "student_name") value = studentPrefill.name || "";
+          if (f.field_type === "roll_number") value = studentPrefill.roll_no || "";
+        }
+        const locked =
+          studentPrefill &&
+          (f.field_type === "student_name" || f.field_type === "roll_number");
+        if (isLong) {
+          return `
+            <div class="field">
+              <label>${escapeHtml(f.label)}${f.required ? " *" : ""}</label>
+              <textarea name="${escapeHtml(f.field_id)}" rows="3" ${f.required ? "required" : ""}
+                data-field-id="${escapeHtml(f.field_id)}">${escapeHtml(value)}</textarea>
+            </div>`;
+        }
+        return `
+          <div class="field">
+            <label>${escapeHtml(f.label)}${f.required ? " *" : ""}</label>
+            <input type="text" name="${escapeHtml(f.field_id)}" value="${escapeHtml(value)}"
+              ${f.required ? "required" : ""} ${locked ? "readonly" : ""}
+              data-field-id="${escapeHtml(f.field_id)}">
+          </div>`;
+      })
+      .join("");
+
+    root.innerHTML = `
+      <h2>${escapeHtml(formMeta.title)}</h2>
+      ${formMeta.teacher_name ? `<p class="subtitle">Teacher: ${escapeHtml(formMeta.teacher_name)}</p>` : ""}
+      ${formMeta.description ? `<p>${escapeHtml(formMeta.description)}</p>` : ""}
+      ${formMeta.deadline ? `<p class="subtitle">Deadline: ${escapeHtml(new Date(formMeta.deadline).toLocaleString())}</p>` : ""}
+      ${studentPrefill ? `<div class="alert alert-success">Signed in as ${escapeHtml(studentPrefill.name)} (${escapeHtml(studentPrefill.roll_no)}). Name and roll number are pre-filled.</div>` : ""}
+      <div class="card">
+        <div id="submitAlert"></div>
+        <form id="submitForm">
+          ${fieldsHtml}
+          <button type="submit" class="btn btn-accent" id="submitBtn">Submit Assignment</button>
+        </form>
+      </div>`;
+
+    document.getElementById("submitForm").addEventListener("submit", onSubmit);
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    const alertBox = document.getElementById("submitAlert");
+    const btn = document.getElementById("submitBtn");
+    btn.disabled = true;
+    btn.textContent = "Submitting…";
+    alertBox.innerHTML = "";
+
+    const fd = new FormData();
+    const answers = {};
+    document.querySelectorAll("[data-field-id]").forEach((el) => {
+      if (el.type === "file") return;
+      answers[el.dataset.fieldId] = el.value;
+    });
+    fd.append("answers", JSON.stringify(answers));
+
+    const fileInput = document.querySelector('input[type="file"][name="files"]');
+    if (fileInput && fileInput.files) {
+      for (const f of fileInput.files) fd.append("files", f);
+    }
+
+    // Optional replace on 409
+    if (window.__replaceSubmission) fd.append("replace", "1");
+
+    try {
+      const headers = {};
+      const st = getStudentToken && getStudentToken();
+      if (st) headers["Authorization"] = "Bearer " + st;
+
+      const res = await fetch(`/api/submissions/form/${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers,
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.can_replace) {
+        if (confirm(data.error + "\n\nReplace your previous submission?")) {
+          window.__replaceSubmission = true;
+          btn.disabled = false;
+          btn.textContent = "Submit Assignment";
+          return onSubmit(e);
+        }
+        throw new Error(data.error || "Already submitted.");
+      }
+      if (!res.ok) throw new Error(data.error || "Submission failed.");
+
+      root.innerHTML = `
+        <div class="card">
+          <div class="alert alert-success">
+            <strong>Submission successful.</strong><br>
+            Reference: <code>${escapeHtml(data.submission_id)}</code><br>
+            ${data.submitted_at ? "Submitted at " + escapeHtml(new Date(data.submitted_at).toLocaleString()) : ""}
+          </div>
+          <p class="subtitle">You can close this page.</p>
+        </div>`;
+    } catch (err) {
+      alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+      btn.textContent = "Submit Assignment";
+    }
+  }
+
+  loadForm();
+})();
+</script>
+</body>
+</html>
