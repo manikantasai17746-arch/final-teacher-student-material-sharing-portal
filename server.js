@@ -68,6 +68,9 @@ app.use((req, res, next) => {
 
 // Static frontend
 app.use(express.static(path.join(__dirname, "public")));
+app.get("/privacy", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "privacy.html"));
+});
 
 // Uploaded files.
 // SECURITY FIX: only file types that are safe to preview (PDFs, images,
