@@ -26,6 +26,43 @@ function toast(msg, isError) {
   window.__toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
 }
 
+/** Clear success modal (quiz/feedback confirmation). */
+function successPopup(title, message, opts) {
+  opts = opts || {};
+  let overlay = document.getElementById("eduvaultSuccessOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "eduvaultSuccessOverlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.style.cssText =
+      "display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;" +
+      "align-items:center;justify-content:center;padding:1rem;";
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:420px;width:100%;padding:1.5rem 1.35rem;' +
+      'box-shadow:0 12px 40px rgba(0,0,0,.2);text-align:center;">' +
+      '<div style="width:52px;height:52px;margin:0 auto 0.85rem;border-radius:50%;background:#E6F7F3;' +
+      'display:flex;align-items:center;justify-content:center;font-size:1.6rem;color:#028090;">✓</div>' +
+      '<h3 id="eduvaultSuccessTitle" style="margin:0 0 0.5rem;color:#16302B;font-size:1.15rem;"></h3>' +
+      '<p id="eduvaultSuccessMsg" style="margin:0 0 1.15rem;color:#5B7A75;line-height:1.45;font-size:0.95rem;"></p>' +
+      '<button type="button" class="btn btn-accent" id="eduvaultSuccessOk">OK</button>' +
+      "</div>";
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", function (e) {
+      if (e.target === overlay) overlay.style.display = "none";
+    });
+  }
+  document.getElementById("eduvaultSuccessTitle").textContent = title || "Success";
+  document.getElementById("eduvaultSuccessMsg").textContent = message || "";
+  const ok = document.getElementById("eduvaultSuccessOk");
+  ok.onclick = function () {
+    overlay.style.display = "none";
+    if (typeof opts.onClose === "function") opts.onClose();
+  };
+  overlay.style.display = "flex";
+  try { ok.focus(); } catch (_) {}
+}
+
 // Prefer the token that matches the API namespace. Previously this always
 // did getTeacherToken() || getStudentToken(), so a leftover teacher session
 // on the same browser caused student-only routes (e.g. POST .../bookmark)
@@ -37,13 +74,22 @@ function pickAuthToken(path) {
   const studentTok = getStudentToken();
   const p = path || "";
   // Student-only routes must never send a leftover teacher JWT.
-  if (p.startsWith("/students") || p.startsWith("/materials/download")) {
+  if (
+    p.startsWith("/students") ||
+    p.startsWith("/materials/download") ||
+    p.startsWith("/quizzes/student") ||
+    (p.startsWith("/quizzes/") && (p.includes("/submit") || p.includes("/my-result"))) ||
+    p.startsWith("/feedback/student") ||
+    (p.startsWith("/feedback/") && p.includes("/submit"))
+  ) {
     return studentTok || teacherTok;
   }
   // Teacher/admin write routes prefer the teacher token.
   if (
     p.startsWith("/admin") ||
     p.startsWith("/google-drive") ||
+    p.startsWith("/quizzes") ||
+    p.startsWith("/feedback") ||
     (p.startsWith("/submissions/") && !p.startsWith("/submissions/form")) ||
     (p.startsWith("/teachers/") && p.includes("/analytics")) ||
     p === "/materials/upload" ||

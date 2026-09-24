@@ -62,6 +62,7 @@
   accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.csv,.xls,.xlsx,.zip,.rar,.7z,.jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.mp4,.webm,.py,.java,.cpp,.c"
   required
 >
+        <div id="selectedMaterialInfo" class="subtitle" style="margin-top:0.5rem;">No file selected</div>
       </div>
       <button type="submit" class="btn btn-accent" id="uploadBtn">Upload Material</button>
 
@@ -448,7 +449,7 @@ function openRequestModal(existing) {
     document.getElementById("reqTitle").value = existing.title || "";
     document.getElementById("reqDesc").value = existing.description || "";
     document.getElementById("reqDeadline").value = existing.deadline
-      ? new Date(existing.deadline).toISOString().slice(0, 16)
+      ? (function(v){const d=new Date(v);if(isNaN(d))return"";const p=n=>String(n).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"T"+p(d.getHours())+":"+p(d.getMinutes());})(existing.deadline)
       : "";
     document.getElementById("reqMaxFiles").value = existing.max_files || 1;
     document.getElementById("reqMaxSize").value = existing.max_file_size_mb || 25;
@@ -500,7 +501,17 @@ document.getElementById("requestForm").addEventListener("submit", async (e) => {
       toast("Submission request created.");
     }
     document.getElementById("requestModal").style.display = "none";
-    loadRequests();
+    const matFileInput = document.getElementById("file");
+if (matFileInput) {
+  matFileInput.addEventListener("change", () => {
+    const info = document.getElementById("selectedMaterialInfo");
+    const f = matFileInput.files && matFileInput.files[0];
+    if (!f) { if (info) info.textContent = "No file selected"; return; }
+    const mb = (f.size / 1024 / 1024).toFixed(2);
+    if (info) info.textContent = "Selected File: " + f.name + " · " + (f.type || "unknown type") + " · " + mb + " MB";
+  });
+}
+loadRequests();
   } catch (err) {
     alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
   }
@@ -561,7 +572,17 @@ window.toggleRequest = async function (id, active) {
       method: "PATCH",
       body: { active },
     });
-    loadRequests();
+    const matFileInput = document.getElementById("file");
+if (matFileInput) {
+  matFileInput.addEventListener("change", () => {
+    const info = document.getElementById("selectedMaterialInfo");
+    const f = matFileInput.files && matFileInput.files[0];
+    if (!f) { if (info) info.textContent = "No file selected"; return; }
+    const mb = (f.size / 1024 / 1024).toFixed(2);
+    if (info) info.textContent = "Selected File: " + f.name + " · " + (f.type || "unknown type") + " · " + mb + " MB";
+  });
+}
+loadRequests();
   } catch (err) {
     toast(err.message, true);
   }
@@ -582,6 +603,7 @@ window.viewSubs = async function (id, title) {
     if (!rows.length) {
       wrap.innerHTML = `<div class="empty">No submissions yet.</div>
         <div style="margin-top:1rem;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="zipKeepRequest('${id}')">Create ZIP &amp; Keep Files</button>
           <button type="button" class="btn btn-outline btn-sm" onclick="archiveRequest('${id}')">Archive &amp; Free Drive Space</button>
         </div>`;
       return;
@@ -589,7 +611,8 @@ window.viewSubs = async function (id, title) {
     wrap.innerHTML = `
       <p class="subtitle">Total: ${rows.length}</p>
       <div style="margin-bottom:0.8rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-        <button type="button" class="btn btn-outline btn-sm" onclick="archiveRequest('${id}')">Archive &amp; Free Drive Space</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="zipKeepRequest('${id}')">Create ZIP &amp; Keep Files</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="archiveRequest('${id}')">Archive &amp; Free Drive Space</button>
       </div>
       <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:0.92rem;">
@@ -765,7 +788,471 @@ document.getElementById("closeSubsBtn").addEventListener("click", () => {
   document.getElementById("subsModal").style.display = "none";
 });
 
+const matFileInput = document.getElementById("file");
+if (matFileInput) {
+  matFileInput.addEventListener("change", () => {
+    const info = document.getElementById("selectedMaterialInfo");
+    const f = matFileInput.files && matFileInput.files[0];
+    if (!f) { if (info) info.textContent = "No file selected"; return; }
+    const mb = (f.size / 1024 / 1024).toFixed(2);
+    if (info) info.textContent = "Selected File: " + f.name + " · " + (f.type || "unknown type") + " · " + mb + " MB";
+  });
+}
 loadRequests();
 </script>
+
+<div class="divider"></div>
+<div class="card" id="quizSection">
+  <div class="section-title">
+    <h2>Assessments / Quizzes</h2>
+    <button type="button" class="btn btn-accent btn-sm" onclick="openQuizModal()">Create Quiz</button>
+  </div>
+  <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+    <input type="search" id="quizSearch" placeholder="Search quizzes..." style="min-width:180px;padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:8px;" aria-label="Search quizzes">
+    <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('quizSearch').value='';loadQuizzes();">Clear</button>
+  </div>
+  <div id="quizList" class="list"></div>
+  <div id="quizWorkPanel"></div>
+</div>
+
+<div class="card" id="feedbackSection" style="margin-top:1.5rem;">
+  <div class="section-title">
+    <h2>Teaching Feedback</h2>
+    <button type="button" class="btn btn-accent btn-sm" onclick="openFeedbackModal()">Create Feedback Form</button>
+  </div>
+  <p class="subtitle">Anonymous student evaluations. Teachers cannot see who submitted which response.</p>
+  <div id="feedbackList" class="list"></div>
+  <div id="feedbackWorkPanel"></div>
+</div>
+
+<div id="quizModal" role="dialog" aria-modal="true" aria-labelledby="quizModalTitle" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:1rem;">
+  <div class="card" style="max-width:740px;width:100%;max-height:90vh;overflow:auto;">
+    <div class="section-title"><h2 id="quizModalTitle">Create Quiz</h2>
+      <button type="button" class="btn btn-outline btn-sm" onclick="closeQuizModal()" aria-label="Close">Close</button>
+    </div>
+    <input type="hidden" id="quizEditId">
+    <div class="field"><label for="quizTitle">Title <span aria-hidden="true">*</span></label><input id="quizTitle" type="text" required placeholder="e.g. DBMS Unit 1 Quiz"></div>
+    <div class="field-row">
+      <div class="field"><label for="quizSubject">Subject</label><input id="quizSubject" type="text"></div>
+      <div class="field"><label for="quizClass">Class / target <span aria-hidden="true">*</span></label><input id="quizClass" type="text" placeholder="e.g. CSE 2nd Year" required></div>
+    </div>
+    <div class="field"><label for="quizInstructions">Instructions</label><textarea id="quizInstructions" rows="2"></textarea></div>
+    <div class="field"><label for="quizDeadline">Deadline <span aria-hidden="true">*</span></label><input type="datetime-local" id="quizDeadline" required></div>
+    <div class="section-title"><h3 style="font-size:1rem;">Questions (exactly 4 options each; correct answers AFTER deadline)</h3>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addQuizQuestion()">Add Question</button>
+    </div>
+    <div id="quizQuestions"></div>
+    <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+      <button type="button" class="btn btn-accent" id="quizSaveBtn" onclick="saveQuiz(false)">Save Draft</button>
+      <button type="button" class="btn btn-outline" id="quizPubBtn" onclick="saveQuiz(true)">Save &amp; Publish</button>
+    </div>
+  </div>
+</div>
+
+<div id="feedbackModal" role="dialog" aria-modal="true" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:1rem;">
+  <div class="card" style="max-width:740px;width:100%;max-height:90vh;overflow:auto;">
+    <div class="section-title"><h2 id="fbModalTitle">Create Feedback Form</h2>
+      <button type="button" class="btn btn-outline btn-sm" onclick="closeFeedbackModal()">Close</button>
+    </div>
+    <input type="hidden" id="fbEditId">
+    <div class="field"><label for="fbTitle">Title <span aria-hidden="true">*</span></label><input id="fbTitle" type="text" required></div>
+    <div class="field-row">
+      <div class="field"><label for="fbSubject">Subject</label><input id="fbSubject" type="text"></div>
+      <div class="field"><label for="fbClass">Class / target</label><input id="fbClass" type="text" placeholder="e.g. CSE 2nd Year"></div>
+    </div>
+    <div class="field"><label for="fbDeadline">Deadline</label><input type="datetime-local" id="fbDeadline"></div>
+    <div class="section-title"><h3 style="font-size:1rem;">Rating questions (4 options)</h3>
+      <button type="button" class="btn btn-outline btn-sm" onclick="addFbQuestion()">Add Question</button>
+    </div>
+    <div id="fbQuestions"></div>
+    <p class="subtitle">Students always get an optional anonymous "Additional comments" field.</p>
+    <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+      <button type="button" class="btn btn-accent" onclick="saveFeedback(false)">Save Draft</button>
+      <button type="button" class="btn btn-outline" onclick="saveFeedback(true)">Save &amp; Publish</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function toDatetimeLocalValue(v) {
+  if (!v) return "";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+let _quizQs = [];
+let _fbQs = [];
+
+function openQuizModal(existing) {
+  document.getElementById("quizModal").style.display = "flex";
+  document.getElementById("quizEditId").value = existing ? existing.quiz_id : "";
+  document.getElementById("quizModalTitle").textContent = existing ? "Edit Quiz" : "Create Quiz";
+  document.getElementById("quizTitle").value = existing ? (existing.title || "") : "";
+  document.getElementById("quizSubject").value = existing ? (existing.subject || "") : "";
+  document.getElementById("quizClass").value = existing ? (existing.class_label || "") : "";
+  document.getElementById("quizInstructions").value = existing ? (existing.instructions || "") : "";
+  document.getElementById("quizDeadline").value = existing && existing.deadline ? toDatetimeLocalValue(existing.deadline) : "";
+  _quizQs = (existing && existing.questions || []).map((q) => ({
+    question_text: q.question_text,
+    marks: q.marks || 1,
+    options: (q.options || []).map((o) => o.option_text || o).concat(["","","",""]).slice(0, 4),
+  }));
+  if (!_quizQs.length) _quizQs = [{ question_text: "", marks: 1, options: ["", "", "", ""] }];
+  renderQuizQuestions();
+}
+function closeQuizModal() { document.getElementById("quizModal").style.display = "none"; }
+function addQuizQuestion() {
+  _quizQs.push({ question_text: "", marks: 1, options: ["", "", "", ""] });
+  renderQuizQuestions();
+}
+function renderQuizQuestions() {
+  document.getElementById("quizQuestions").innerHTML = _quizQs.map((q, i) => `
+    <div class="card" style="margin-bottom:0.75rem;padding:0.85rem;">
+      <div class="field"><label>Q${i + 1} text</label>
+        <input type="text" value="${escapeHtml(q.question_text)}" onchange="_quizQs[${i}].question_text=this.value" placeholder="Question text">
+      </div>
+      <div class="field"><label>Marks</label>
+        <input type="number" min="0.5" step="0.5" value="${q.marks}" onchange="_quizQs[${i}].marks=parseFloat(this.value)||1" style="width:6rem;">
+      </div>
+      ${[0,1,2,3].map((j) => `
+        <div class="field"><label>Option ${String.fromCharCode(65 + j)}</label>
+          <input type="text" value="${escapeHtml((q.options && q.options[j]) || "")}" onchange="if(!_quizQs[${i}].options)_quizQs[${i}].options=['','','',''];_quizQs[${i}].options[${j}]=this.value">
+        </div>`).join("")}
+      <button type="button" class="btn btn-outline btn-sm" onclick="_quizQs.splice(${i},1);renderQuizQuestions();">Remove question</button>
+    </div>`).join("");
+}
+async function saveQuiz(publish) {
+  const btn = document.getElementById(publish ? "quizPubBtn" : "quizSaveBtn");
+  if (btn) { btn.disabled = true; btn.textContent = publish ? "Publishing..." : "Saving..."; }
+  try {
+    // Collect latest values from the form (onchange can miss the last keystroke)
+    const qCards = document.querySelectorAll("#quizQuestions .card");
+    const collected = [];
+    qCards.forEach((card, idx) => {
+      const inputs = card.querySelectorAll('input[type="text"], input[type="number"]');
+      // layout: text, marks, optA, optB, optC, optD
+      const textEl = card.querySelector('input[type="text"]');
+      const marksEl = card.querySelector('input[type="number"]');
+      const textInputs = Array.from(card.querySelectorAll('input[type="text"]'));
+      // first text = question, next 4 = options
+      const qText = textInputs[0] ? textInputs[0].value.trim() : "";
+      const opts = textInputs.slice(1, 5).map((el) => el.value.trim());
+      if (!qText) return;
+      collected.push({
+        question_text: qText,
+        marks: marksEl ? (parseFloat(marksEl.value) || 1) : 1,
+        options: opts,
+      });
+    });
+    if (!collected.length) throw new Error("Add at least one question with text and 4 options.");
+    for (let i = 0; i < collected.length; i++) {
+      const o = collected[i].options;
+      if (o.length !== 4 || o.some((x) => !x)) {
+        throw new Error("Question " + (i + 1) + " must have exactly 4 non-empty options (A–D).");
+      }
+    }
+    const payload = {
+      title: document.getElementById("quizTitle").value,
+      subject: document.getElementById("quizSubject").value,
+      class_label: document.getElementById("quizClass").value,
+      instructions: document.getElementById("quizInstructions").value,
+      deadline: document.getElementById("quizDeadline").value || null,
+      questions: collected,
+    };
+    if (!payload.title || !payload.title.trim()) throw new Error("Title is required.");
+    if (!payload.deadline) throw new Error("Deadline is required.");
+    const id = document.getElementById("quizEditId").value;
+    let quiz;
+    if (id) quiz = (await api("/quizzes/" + encodeURIComponent(id), { method: "PUT", body: payload })).quiz;
+    else quiz = (await api("/quizzes", { method: "POST", body: payload })).quiz;
+    if (publish && quiz) await api("/quizzes/" + encodeURIComponent(quiz.quiz_id) + "/publish", { method: "POST", body: {} });
+    closeQuizModal();
+    loadQuizzes();
+    successPopup(
+      publish ? "Quiz published" : "Quiz saved",
+      publish
+        ? "The quiz is open for students who follow you and match the class. Data is stored in your Google Drive."
+        : "Draft saved. Publish when you are ready for students to attempt it."
+    );
+  } catch (e) { toast(e.message || "Save failed", true); }
+  finally {
+    if (btn) { btn.disabled = false; btn.textContent = publish ? "Save & Publish" : "Save Draft"; }
+  }
+}
+
+async function loadQuizzes() {
+  try {
+    const data = await api("/quizzes/mine");
+    let list = data.quizzes || [];
+    const q = (document.getElementById("quizSearch") && document.getElementById("quizSearch").value || "").toLowerCase();
+    if (q) list = list.filter((x) => JSON.stringify(x).toLowerCase().includes(q));
+    const el = document.getElementById("quizList");
+    if (!list.length) { el.innerHTML = '<div class="empty">No quizzes yet. Create one to get started.</div>'; return; }
+    el.innerHTML = list.map((qz) => {
+      const id = qz.quiz_id;
+      const deadline = qz.deadline ? new Date(qz.deadline).toLocaleString() : "—";
+      const past = qz.deadline && new Date(qz.deadline).getTime() <= Date.now();
+      return `<div class="list-item">
+        <div><strong>${escapeHtml(qz.title)}</strong>
+          <div class="sub">${escapeHtml(qz.subject || "")} · ${escapeHtml(qz.class_label || "")} · <span class="pill">${escapeHtml(qz.status)}</span>
+          · Deadline: ${escapeHtml(deadline)} · Submissions: ${qz.submission_count || 0}
+          ${qz.results_published ? " · Results published" : ""}</div>
+        </div>
+        <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+          ${qz.status === "draft" ? `<button class="btn btn-outline btn-sm" onclick="editQuiz('${id}')">Edit</button>
+            <button class="btn btn-accent btn-sm" onclick="publishQuiz('${id}')">Publish</button>` : ""}
+          ${qz.status === "open" && !past ? `<button class="btn btn-outline btn-sm" onclick="closeQuizAct('${id}')">Close</button>` : ""}
+          ${(() => {
+            const hasCorrect = qz.has_correct_answers === true || (Number(qz.question_count) > 0 && Number(qz.correct_answers_set || 0) >= Number(qz.question_count));
+            const evaluated = !!(qz.evaluated_at || qz.evaluated);
+            const published = !!qz.results_published;
+            let actions = "";
+            if (past && !hasCorrect && !evaluated && !published) {
+              actions += `<button class="btn btn-outline btn-sm" onclick="openCorrectAnswers('${id}')">Select Correct Answers</button>`;
+            } else if (past && hasCorrect && !evaluated && !published) {
+              actions += `<button class="btn btn-outline btn-sm" onclick="evaluateQuizAct('${id}')">Evaluate</button>`;
+            } else if (past && evaluated && !published) {
+              actions += `<button class="btn btn-accent btn-sm" onclick="publishResultsAct('${id}')">Publish Results</button>`;
+            } else if (published) {
+              actions += `<button class="btn btn-outline btn-sm" onclick="window.location.href='/teacher-quiz-results.html?quiz_id='+encodeURIComponent('${id}')">View Results</button>`;
+            }
+            return actions;
+          })()}
+          <button class="btn btn-outline btn-sm" onclick="deleteQuizAct('${id}', ${qz.submission_count || 0})">Delete</button>
+        </div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    document.getElementById("quizList").innerHTML = '<div class="empty">Could not load quizzes.</div>';
+  }
+}
+async function editQuiz(id) {
+  const data = await api("/quizzes/" + encodeURIComponent(id));
+  openQuizModal(data.quiz);
+}
+async function publishQuiz(id) {
+  if (!confirm("Publish this quiz for matching students?")) return;
+  try { await api("/quizzes/" + encodeURIComponent(id) + "/publish", { method: "POST", body: {} }); toast("Published"); loadQuizzes(); }
+  catch (e) { toast(e.message, true); }
+}
+async function closeQuizAct(id) {
+  if (!confirm("Close this quiz? Students will no longer submit.")) return;
+  try { await api("/quizzes/" + encodeURIComponent(id) + "/close", { method: "POST", body: {} }); toast("Closed"); loadQuizzes(); }
+  catch (e) { toast(e.message, true); }
+}
+async function deleteQuizAct(id, count) {
+  const msg = count > 0
+    ? "Warning: This quiz has " + count + " student submission(s)/results. Deleting may permanently remove them. Continue?"
+    : "Delete this quiz?";
+  if (!confirm(msg)) return;
+  try { await api("/quizzes/" + encodeURIComponent(id), { method: "DELETE" }); toast("Deleted"); loadQuizzes(); }
+  catch (e) { toast(e.message, true); }
+}
+async function openCorrectAnswers(id) {
+  try {
+    const data = await api("/quizzes/" + encodeURIComponent(id));
+    if (!data.can_set_correct_answers && data.quiz && data.quiz.deadline && new Date(data.quiz.deadline) > new Date()) {
+      toast("Correct answers can only be set after the deadline.", true);
+      return;
+    }
+    const quiz = data.quiz;
+    let html = `<div class="card" style="margin-top:1rem;"><h3>Select Correct Answers — ${escapeHtml(quiz.title)}</h3>
+      <p class="subtitle">Available only after the deadline.</p>`;
+    html += (quiz.questions || []).map((q) => `
+      <div class="field"><label>${escapeHtml(q.question_text)}</label>
+        <select id="corr_${q.question_id}" aria-label="Correct option">
+          <option value="">— select —</option>
+          ${(q.options || []).map((o) => `<option value="${o.option_id}" ${q.correct_option_id === o.option_id ? "selected" : ""}>${escapeHtml(o.option_text)}</option>`).join("")}
+        </select>
+      </div>`).join("");
+    html += `<button class="btn btn-accent" id="saveCorrBtn">Save Correct Answers</button></div>`;
+    const panel = document.getElementById("quizWorkPanel");
+    panel.innerHTML = html;
+    document.getElementById("saveCorrBtn").onclick = async () => {
+      const answers = (quiz.questions || []).map((q) => ({
+        question_id: q.question_id,
+        correct_option_id: document.getElementById("corr_" + q.question_id).value || null,
+      })).filter((a) => a.correct_option_id);
+      try {
+       await api("/quizzes/" + encodeURIComponent(id) + "/correct-answers", {
+  method: "POST",
+  body: { answers }
+});
+
+toast("Correct answers saved");
+
+await loadQuizzes();
+      } catch (e) { toast(e.message, true); }
+    };
+  } catch (e) { toast(e.message, true); }
+}
+async function evaluateQuizAct(id) {
+  if (!confirm("Evaluate all submissions now? Results stay hidden from students until you Publish Results.")) return;
+  try {
+    toast("Evaluating...");
+    await api("/quizzes/" + encodeURIComponent(id) + "/evaluate", { method: "POST", body: {} });
+    loadQuizzes();
+    successPopup("Evaluation complete", "Marks were calculated and saved to Google Drive. Publish results when you want students to see them.");
+    try { openQuizResults(id); } catch (_) {}
+  } catch (e) { toast(e.message, true); }
+}
+async function publishResultsAct(id) {
+  if (!confirm("Publish results so students can see their scores?")) return;
+  try {
+    await api("/quizzes/" + encodeURIComponent(id) + "/publish-results", { method: "POST", body: {} });
+    loadQuizzes();
+    successPopup("Results published", "Students can now view their own marks and correct answers for this quiz.");
+  } catch (e) { toast(e.message, true); }
+}
+async function openQuizResults(id) {
+  const q = prompt("Search by roll number or name (blank for all):", "") || "";
+  try {
+    const data = await api("/quizzes/" + encodeURIComponent(id) + "/results?q=" + encodeURIComponent(q) + "&limit=200");
+    const rows = data.results || [];
+    document.getElementById("quizWorkPanel").innerHTML = `<div class="card"><h3>Results — ${escapeHtml(data.quiz.title)}</h3>
+      <p class="subtitle">${data.total} submission(s). Roll number listed first.</p>
+      <div style="overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.92rem;">
+        <thead><tr><th>Roll No</th><th>Name</th><th>Marks</th><th>%</th><th>Submitted</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr>
+          <td><strong>${escapeHtml(r.roll_no || "")}</strong></td>
+          <td>${escapeHtml(r.student_name || "")}</td>
+          <td>${r.evaluated ? (r.scored_marks + "/" + r.total_marks) : "—"}</td>
+          <td>${r.evaluated ? (r.percentage + "%") : "Pending"}</td>
+          <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : ""}</td>
+        </tr>`).join("")}</tbody></table></div></div>`;
+  } catch (e) { toast(e.message, true); }
+}
+
+/* Feedback */
+function openFeedbackModal(existing) {
+  document.getElementById("feedbackModal").style.display = "flex";
+  document.getElementById("fbEditId").value = existing ? existing.form_id : "";
+  document.getElementById("fbTitle").value = existing ? (existing.title || "") : "";
+  document.getElementById("fbSubject").value = existing ? (existing.subject || "") : "";
+  document.getElementById("fbClass").value = existing ? (existing.class_label || "") : "";
+  document.getElementById("fbDeadline").value = existing && existing.deadline ? toDatetimeLocalValue(existing.deadline) : "";
+  _fbQs = (existing && existing.questions || []).filter((q) => q.question_type !== "text").map((q) => ({
+    question_text: q.question_text,
+    options: (q.options || ["Bad", "Good", "Very Good", "Excellent"]).slice(0, 4),
+  }));
+  if (!_fbQs.length) {
+    _fbQs = [
+      { question_text: "How clearly does the teacher explain concepts?", options: ["Bad", "Good", "Very Good", "Excellent"] },
+      { question_text: "How well does the teacher clarify doubts?", options: ["Bad", "Good", "Very Good", "Excellent"] },
+      { question_text: "How interactive are the classes?", options: ["Bad", "Good", "Very Good", "Excellent"] },
+    ];
+  }
+  renderFbQuestions();
+}
+function closeFeedbackModal() { document.getElementById("feedbackModal").style.display = "none"; }
+function addFbQuestion() {
+  _fbQs.push({ question_text: "", options: ["Bad", "Good", "Very Good", "Excellent"] });
+  renderFbQuestions();
+}
+function renderFbQuestions() {
+  document.getElementById("fbQuestions").innerHTML = _fbQs.map((q, i) => `
+    <div class="card" style="margin-bottom:0.75rem;padding:0.85rem;">
+      <div class="field"><label>Q${i + 1}</label>
+        <input type="text" value="${escapeHtml(q.question_text)}" onchange="_fbQs[${i}].question_text=this.value">
+      </div>
+      ${[0,1,2,3].map((j) => `
+        <div class="field"><label>Option ${j + 1}</label>
+          <input type="text" value="${escapeHtml((q.options && q.options[j]) || "")}" onchange="_fbQs[${i}].options[${j}]=this.value">
+        </div>`).join("")}
+      <button type="button" class="btn btn-outline btn-sm" onclick="_fbQs.splice(${i},1);renderFbQuestions();">Remove</button>
+    </div>`).join("");
+}
+async function saveFeedback(publish) {
+  try {
+    const payload = {
+      title: document.getElementById("fbTitle").value,
+      subject: document.getElementById("fbSubject").value,
+      class_label: document.getElementById("fbClass").value,
+      deadline: document.getElementById("fbDeadline").value || null,
+      questions: _fbQs.filter((q) => q.question_text).map((q) => ({
+        question_text: q.question_text,
+        question_type: "rating",
+        options: (q.options || []).map((o) => String(o).trim()).filter(Boolean).slice(0, 4),
+      })),
+    };
+    const id = document.getElementById("fbEditId").value;
+    let form;
+    if (id) form = (await api("/feedback/" + encodeURIComponent(id), { method: "PUT", body: payload })).form;
+    else form = (await api("/feedback", { method: "POST", body: payload })).form;
+    if (publish && form) await api("/feedback/" + encodeURIComponent(form.form_id) + "/publish", { method: "POST", body: {} });
+    closeFeedbackModal();
+    loadFeedback();
+    successPopup(
+      publish ? "Feedback form published" : "Feedback form created",
+      publish
+        ? "Students who follow you can submit anonymous feedback. Responses are stored in your Google Drive without student identity."
+        : "Draft saved on your Google Drive. Publish when you are ready to collect responses."
+    );
+  } catch (e) { toast(e.message, true); }
+}
+async function loadFeedback() {
+  try {
+    const data = await api("/feedback/mine");
+    const list = data.forms || [];
+    const el = document.getElementById("feedbackList");
+    if (!list.length) { el.innerHTML = '<div class="empty">No feedback forms yet.</div>'; return; }
+    el.innerHTML = list.map((f) => {
+      const deadline = f.deadline ? new Date(f.deadline).toLocaleString() : "No deadline";
+      return `<div class="list-item">
+        <div><strong>${escapeHtml(f.title)}</strong>
+          <div class="sub">${escapeHtml(f.subject || "")} · ${escapeHtml(f.class_label || "")} · ${escapeHtml(f.status)} · ${escapeHtml(deadline)} · Responses: ${f.response_count || 0}</div>
+        </div>
+        <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+          ${f.status === "draft" ? `<button class="btn btn-accent btn-sm" onclick="publishFeedback('${f.form_id}')">Publish</button>` : ""}
+          ${f.status === "open" ? `<button class="btn btn-outline btn-sm" onclick="closeFeedback('${f.form_id}')">Close</button>` : ""}
+          <button class="btn btn-outline btn-sm" onclick="viewFeedbackResults('${f.form_id}')">View Results</button>
+          <button class="btn btn-outline btn-sm" onclick="deleteFeedback('${f.form_id}')">Delete</button>
+        </div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    document.getElementById("feedbackList").innerHTML = '<div class="empty">Could not load feedback.</div>';
+  }
+}
+async function publishFeedback(id) {
+  try { await api("/feedback/" + encodeURIComponent(id) + "/publish", { method: "POST", body: {} }); toast("Published"); loadFeedback(); }
+  catch (e) { toast(e.message, true); }
+}
+async function closeFeedback(id) {
+  try { await api("/feedback/" + encodeURIComponent(id) + "/close", { method: "POST", body: {} }); toast("Closed"); loadFeedback(); }
+  catch (e) { toast(e.message, true); }
+}
+async function deleteFeedback(id) {
+  if (!confirm("Delete this feedback form and all anonymous responses?")) return;
+  try { await api("/feedback/" + encodeURIComponent(id), { method: "DELETE" }); toast("Deleted"); loadFeedback(); }
+  catch (e) { toast(e.message, true); }
+}
+async function viewFeedbackResults(id) {
+  try {
+    const data = await api("/feedback/" + encodeURIComponent(id) + "/results");
+    let html = `<div class="card"><h3>${escapeHtml(data.form.title)}</h3>
+      <p class="subtitle">Responses: ${data.response_count} (fully anonymous — no names or roll numbers)</p>`;
+    for (const a of data.aggregates || []) {
+      html += `<div style="margin:0.75rem 0;"><strong>${escapeHtml(a.question_text)}</strong><ul>`;
+      for (const [k, v] of Object.entries(a.counts || {})) html += `<li>${escapeHtml(k)}: ${v}</li>`;
+      html += `</ul></div>`;
+    }
+    if (data.comments && data.comments.length) {
+      html += `<h4>Anonymous comments</h4><ul>` + data.comments.map((c) => `<li>${escapeHtml(c)}</li>`).join("") + `</ul>`;
+    }
+    html += `</div>`;
+    document.getElementById("feedbackWorkPanel").innerHTML = html;
+  } catch (e) { toast(e.message, true); }
+}
+
+document.getElementById("quizSearch") && document.getElementById("quizSearch").addEventListener("input", () => {
+  clearTimeout(window._quizSearchT);
+  window._quizSearchT = setTimeout(loadQuizzes, 250);
+});
+loadQuizzes();
+loadFeedback();
+</script>
+
 </body>
 </html>

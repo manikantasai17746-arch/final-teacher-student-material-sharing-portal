@@ -566,6 +566,11 @@ router.get(
         INLINE_SAFE_EXT.has(ext) ? "inline" : "attachment",
         niceName
       );
+      if (INLINE_SAFE_EXT.has(ext)) {
+        // Allow same-origin iframe preview; do not send DENY
+        res.removeHeader("X-Frame-Options");
+        res.set("Content-Security-Policy", "frame-ancestors 'self'");
+      }
 
       // Drive-backed materials: stream via teacher's OAuth (student never
       // gets a Drive link or token).
@@ -634,6 +639,13 @@ router.get(
         return res.status(404).json({
           error: "Material not found.",
         });
+      }
+
+      if (
+        req.auth.role === "teacher" &&
+        String(material.emp_id).toLowerCase() !== String(req.auth.sub).toLowerCase()
+      ) {
+        return res.status(403).json({ error: "You can only download your own materials." });
       }
 
       // ---------------------------------------------------------------

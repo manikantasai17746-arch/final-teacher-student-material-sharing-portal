@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz Results — EduVault</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <a href="/teacher-dashboard.html" style="text-decoration:none;"><div class="brand"><span class="app">EduVault</span></div></a>
+  <nav>
+    <a href="/teacher-dashboard.html">Back to Dashboard</a>
+    <button class="btn-ghost-topbar" id="logoutBtn">Log Out</button>
+  </nav>
+</div>
+<div class="page">
+  <div class="eyebrow">Quiz Results</div>
+  <h2 id="quizTitle">Loading…</h2>
+  <p class="subtitle" id="quizMeta"></p>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:1rem 0;">
+    <input type="search" id="resultSearch" placeholder="Search roll number or name..." style="min-width:220px;padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:8px;">
+    <button type="button" class="btn btn-outline btn-sm" id="searchBtn">Search</button>
+    <button type="button" class="btn btn-outline btn-sm" id="clearBtn">Clear</button>
+    <select id="sortBy" style="padding:0.4rem;">
+      <option value="roll">Sort by Roll</option>
+      <option value="marks">Sort by Marks</option>
+    </select>
+  </div>
+  <div id="alertBox"></div>
+  <div class="card admin-scroll-table" style="overflow:auto;">
+    <table class="admin-table" style="width:100%;">
+      <thead>
+        <tr><th>Roll Number</th><th>Student Name</th><th>Marks</th><th>Percentage</th><th>Submitted Time</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none;">No submissions yet.</div>
+  </div>
+  <div id="answerPanel" style="margin-top:1.25rem;"></div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const quizId = params.get("quiz_id") || params.get("id");
+if (!getTeacherToken()) location.href = "/teacher-login.html";
+document.getElementById("logoutBtn").onclick = () => { clearTeacher(); location.href = "/teacher-login.html"; };
+
+let allRows = [];
+
+async function load() {
+  if (!quizId) {
+    document.getElementById("quizTitle").textContent = "Missing quiz id";
+    return;
+  }
+  const q = document.getElementById("resultSearch").value.trim();
+  try {
+    const data = await api("/quizzes/" + encodeURIComponent(quizId) + "/results?q=" + encodeURIComponent(q) + "&limit=500");
+    const quiz = data.quiz || {};
+    document.getElementById("quizTitle").textContent = quiz.title || "Quiz Results";
+    document.getElementById("quizMeta").textContent =
+      [quiz.subject, quiz.class_label, quiz.deadline ? ("Deadline: " + new Date(quiz.deadline).toLocaleString()) : "",
+       "Submissions: " + (data.total || 0),
+       quiz.results_published ? "Results published" : "Results not yet published to students"
+      ].filter(Boolean).join(" · ");
+    allRows = data.results || [];
+    render();
+  } catch (e) {
+    document.getElementById("alertBox").innerHTML = '<div class="alert alert-error">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function render() {
+  const sort = document.getElementById("sortBy").value;
+  let rows = allRows.slice();
+  if (sort === "marks") {
+    rows.sort((a, b) => (Number(b.scored_marks) || 0) - (Number(a.scored_marks) || 0));
+  } else {
+    rows.sort((a, b) => String(a.roll_no || "").localeCompare(String(b.roll_no || ""), undefined, { sensitivity: "base" }));
+  }
+  const body = document.getElementById("resultsBody");
+  document.getElementById("empty").style.display = rows.length ? "none" : "block";
+  body.innerHTML = rows.map((r) => `
+    <tr>
+      <td><strong>${escapeHtml(r.roll_no || "")}</strong></td>
+      <td>${escapeHtml(r.student_name || "")}</td>
+      <td>${r.evaluated ? escapeHtml(String(r.scored_marks) + "/" + String(r.total_marks)) : "—"}</td>
+      <td>${r.evaluated ? escapeHtml(String(r.percentage) + "%") : "Pending"}</td>
+      <td>${r.submitted_at ? escapeHtml(new Date(r.submitted_at).toLocaleString()) : ""}</td>
+      <td><button type="button" class="btn btn-outline btn-sm" onclick="viewAnswers('${escapeHtml(r.roll_no)}')">View Answers</button></td>
+    </tr>`).join("");
+}
+
+async function viewAnswers(roll) {
+  const panel = document.getElementById("answerPanel");
+  panel.innerHTML = "<p class=\"subtitle\">Loading answers…</p>";
+  try {
+    const data = await api("/quizzes/" + encodeURIComponent(quizId) + "/results/" + encodeURIComponent(roll));
+    const quiz = data.quiz || {};
+    const detail = data.detail || {};
+    const submission = data.submission || detail.submission || {};
+    let html = `<div class="card"><h3>Answers — ${escapeHtml(roll)}</h3>
+      <p class="subtitle">${escapeHtml(submission.student_name || "")} ·
+      ${submission.evaluated ? (submission.scored_marks + "/" + submission.total_marks + " (" + submission.percentage + "%)") : "Not evaluated"}</p>`;
+    const questions = (detail.quiz && detail.quiz.questions) || quiz.questions || [];
+    const ansByQ = {};
+    (detail.answers || []).forEach((a) => { ansByQ[a.question_id] = a; });
+    questions.forEach((q, i) => {
+      const a = ansByQ[q.question_id];
+      const yours = (q.options || []).find((o) => o.option_id === (a && a.selected_option_id));
+      const correct = (q.options || []).find((o) => o.option_id === q.correct_option_id);
+      html += `<div style="margin:0.75rem 0;padding:0.75rem;border:1px solid var(--line);border-radius:8px;">
+        <strong>Question ${i + 1}:</strong> ${escapeHtml(q.question_text)}<br>
+        <div>Student Answer: ${escapeHtml(yours ? yours.option_text : "—")}</div>
+        <div>Correct Answer: ${escapeHtml(correct ? correct.option_text : "—")}</div>
+        <div>Marks: ${a && a.marks_awarded != null ? a.marks_awarded : "—"} / ${q.marks}</div>
+      </div>`;
+    });
+    html += "</div>";
+    panel.innerHTML = html;
+    panel.scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    panel.innerHTML = '<div class="alert alert-error">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+document.getElementById("searchBtn").onclick = load;
+document.getElementById("clearBtn").onclick = () => { document.getElementById("resultSearch").value = ""; load(); };
+document.getElementById("sortBy").onchange = render;
+document.getElementById("resultSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+load();
+</script>
+</body>
+</html>

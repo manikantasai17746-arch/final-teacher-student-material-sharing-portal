@@ -222,5 +222,186 @@ async function renderBookmarks() {
 
 renderBookmarks();
 </script>
+
+<div class="card" style="margin-top:1.5rem;" id="studentQuizSection">
+  <div class="section-title"><h2>Quizzes</h2></div>
+  <div id="studentQuizList" class="list"></div>
+  <div id="studentQuizPanel"></div>
+</div>
+<div class="card" style="margin-top:1.5rem;" id="studentFeedbackSection">
+  <div class="section-title"><h2>Teaching Feedback</h2></div>
+  <p class="subtitle">Your feedback is anonymous. Your name, roll number and email are not shown to the teacher.</p>
+  <div id="studentFeedbackList" class="list"></div>
+  <div id="studentFeedbackPanel"></div>
+</div>
+<script>
+async function loadStudentQuizzes() {
+  try {
+    const data = await api("/quizzes/student/available");
+    const list = data.quizzes || [];
+    const el = document.getElementById("studentQuizList");
+    if (!list.length) { el.innerHTML = '<div class="empty">No open quizzes for your class right now.</div>'; return; }
+    el.innerHTML = list.map((q) => `
+      <div class="list-item">
+        <div><strong>${escapeHtml(q.title)}</strong>
+          <div class="sub">${escapeHtml(q.teacher_name || "")} · ${escapeHtml(q.subject || "")} · ${escapeHtml(q.class_label || "")}
+          · Deadline: ${q.deadline ? new Date(q.deadline).toLocaleString() : "—"}
+          · Marks: ${q.total_marks != null ? q.total_marks : "—"}</div>
+        </div>
+        <div>
+          <button class="btn btn-accent btn-sm" onclick="attemptQuiz('${q.quiz_id}')">Attempt</button>
+          <button class="btn btn-outline btn-sm" onclick="viewMyQuizResult('${q.quiz_id}')">My Result</button>
+        </div>
+      </div>`).join("");
+  } catch (e) {
+    document.getElementById("studentQuizList").innerHTML = '<div class="empty">Could not load quizzes.</div>';
+  }
+}
+async function attemptQuiz(id) {
+  try {
+    const data = await api("/quizzes/" + encodeURIComponent(id));
+    const quiz = data.quiz;
+    const questions = quiz.questions || [];
+    let idx = 0;
+    const answers = {};
+    const panel = document.getElementById("studentQuizPanel");
+    function render() {
+      const q = questions[idx];
+      if (!q) return;
+      panel.innerHTML = `<div class="card">
+        <h3>${escapeHtml(quiz.title)}</h3>
+        <p class="subtitle">Question ${idx + 1} of ${questions.length}</p>
+        <div class="field"><strong>${escapeHtml(q.question_text)}</strong> (${q.marks} marks)</div>
+        ${(q.options || []).map((o, i) => `
+          <label style="display:block;margin:0.35rem 0;font-weight:normal;">
+            <input type="radio" name="quizOpt" value="${o.option_id}" ${answers[q.question_id] === o.option_id ? "checked" : ""}>
+            ${String.fromCharCode(65 + i)}. ${escapeHtml(o.option_text)}
+          </label>`).join("")}
+        <div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline btn-sm" ${idx === 0 ? "disabled" : ""} id="quizPrev">Previous</button>
+          <button type="button" class="btn btn-outline btn-sm" ${idx >= questions.length - 1 ? "disabled" : ""} id="quizNext">Next</button>
+          <button type="button" class="btn btn-accent btn-sm" id="quizSubmit">Submit Quiz</button>
+        </div>
+      </div>`;
+      panel.querySelectorAll('input[name="quizOpt"]').forEach((inp) => {
+        inp.onchange = () => { answers[q.question_id] = inp.value; };
+      });
+      document.getElementById("quizPrev").onclick = () => {
+        const sel = panel.querySelector('input[name="quizOpt"]:checked');
+        if (sel) answers[q.question_id] = sel.value;
+        if (idx > 0) { idx--; render(); }
+      };
+      document.getElementById("quizNext").onclick = () => {
+        const sel = panel.querySelector('input[name="quizOpt"]:checked');
+        if (sel) answers[q.question_id] = sel.value;
+        if (idx < questions.length - 1) { idx++; render(); }
+      };
+      document.getElementById("quizSubmit").onclick = async () => {
+        const sel = panel.querySelector('input[name="quizOpt"]:checked');
+        if (sel) answers[q.question_id] = sel.value;
+        if (!confirm("Submit your answers? You cannot change them later.")) return;
+        try {
+          await api("/quizzes/" + encodeURIComponent(id) + "/submit", { method: "POST", body: { answers } });
+          panel.innerHTML = "";
+          loadStudentQuizzes();
+          successPopup(
+            "Quiz submitted successfully",
+            "Your answers were saved. Results will appear after the teacher evaluates and publishes them."
+          );
+        } catch (e) { toast(e.message, true); }
+      };
+    }
+    render();
+  } catch (e) { toast(e.message, true); }
+}
+async function viewMyQuizResult(id) {
+  try {
+    const data = await api("/quizzes/" + encodeURIComponent(id) + "/my-result");
+    if (data.message) { toast(data.message); return; }
+    if (!data.submission) { toast("You have not submitted this quiz yet.", true); return; }
+    if (!data.quiz.results_published) { toast("Results will be available after teacher evaluation and publishing."); return; }
+    let html = `<div class="card"><h3>${escapeHtml(data.quiz.title)} — Your Result</h3>
+      <p><strong>Roll:</strong> ${escapeHtml(data.submission.roll_no)} ·
+      <strong>Marks:</strong> ${data.submission.scored_marks}/${data.submission.total_marks}
+      (${data.submission.percentage}%)</p>`;
+    const ansByQ = {};
+    (data.answers || []).forEach((a) => { ansByQ[a.question_id] = a; });
+    for (const q of data.quiz.questions || []) {
+      const a = ansByQ[q.question_id];
+      const yours = (q.options || []).find((o) => o.option_id === (a && a.selected_option_id));
+      const correct = (q.options || []).find((o) => o.option_id === q.correct_option_id);
+      html += `<div style="margin:0.5rem 0;"><strong>${escapeHtml(q.question_text)}</strong>
+        <div>Your answer: ${escapeHtml(yours ? yours.option_text : "—")} ${a && a.is_correct ? "✓" : "✗"}
+        · Correct: ${escapeHtml(correct ? correct.option_text : "—")}</div></div>`;
+    }
+    html += `</div>`;
+    document.getElementById("studentQuizPanel").innerHTML = html;
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadStudentFeedback() {
+  try {
+    const data = await api("/feedback/student/available");
+    const list = data.forms || [];
+    const el = document.getElementById("studentFeedbackList");
+    if (!list.length) { el.innerHTML = '<div class="empty">No open feedback forms for your class.</div>'; return; }
+    el.innerHTML = list.map((f) => `
+      <div class="list-item">
+        <div><strong>${escapeHtml(f.title)}</strong>
+          <div class="sub">${escapeHtml(f.teacher_name || "")} · ${escapeHtml(f.subject || "")} · ${f.already_submitted ? "Already submitted" : "Open"}</div>
+        </div>
+        ${f.already_submitted ? '<span class="pill">Done</span>' : `<button class="btn btn-accent btn-sm" onclick="openStudentFeedback('${f.form_id}')">Give Feedback</button>`}
+      </div>`).join("");
+  } catch (e) {
+    document.getElementById("studentFeedbackList").innerHTML = '<div class="empty">Could not load feedback.</div>';
+  }
+}
+async function openStudentFeedback(id) {
+  try {
+    const data = await api("/feedback/" + encodeURIComponent(id));
+    if (data.already_submitted) { toast("You already submitted this feedback."); return; }
+    const form = data.form;
+    let html = `<div class="card"><h3>${escapeHtml(form.title)}</h3>
+      <p class="subtitle">Your response is anonymous. Name, roll number and email are not stored with your answers.</p>
+      <form id="fbStudentForm">`;
+    for (const q of form.questions || []) {
+      html += `<div class="field"><label>${escapeHtml(q.question_text)}</label>`;
+      const opts = q.options || ["Bad", "Good", "Very Good", "Excellent"];
+      for (const o of opts) {
+        html += `<label style="display:block;font-weight:normal;"><input type="radio" name="fq_${q.question_id}" value="${escapeHtml(String(o))}"> ${escapeHtml(String(o))}</label>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div class="field"><label>Additional comments or suggestions</label>
+      <textarea id="fbComment" rows="3" placeholder="Optional"></textarea></div>
+      <button type="submit" class="btn btn-accent">Submit Anonymously</button></form></div>`;
+    const panel = document.getElementById("studentFeedbackPanel");
+    panel.innerHTML = html;
+    document.getElementById("fbStudentForm").onsubmit = async (ev) => {
+      ev.preventDefault();
+      const answers = {};
+      for (const q of form.questions || []) {
+        const sel = document.querySelector(`input[name="fq_${q.question_id}"]:checked`);
+        if (sel) answers[q.question_id] = sel.value;
+      }
+      try {
+        await api("/feedback/" + encodeURIComponent(id) + "/submit", {
+          method: "POST",
+          body: { answers, comment_text: document.getElementById("fbComment").value },
+        });
+        panel.innerHTML = "";
+        loadStudentFeedback();
+        successPopup(
+          "Feedback submitted",
+          "Thank you. Your response was submitted anonymously. Your name, roll number and email are not shown to the teacher."
+        );
+      } catch (e) { toast(e.message, true); }
+    };
+  } catch (e) { toast(e.message, true); }
+}
+loadStudentQuizzes();
+loadStudentFeedback();
+</script>
+
 </body>
 </html>

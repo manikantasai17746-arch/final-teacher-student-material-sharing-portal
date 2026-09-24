@@ -18,7 +18,9 @@ const { Pool } = require("pg");
 //    and cause SELF_SIGNED_CERT_IN_CHAIN against Supabase's cert chain.
 // 4. max: 1 + query retries avoid transient SSL/handshake failures on cold starts.
 function normalizeDatabaseUrl(raw) {
-  let url = (raw || "postgresql://localhost/eduvault").trim();
+  // Never invent a localhost default here — callers must decide policy.
+  let url = String(raw || "").trim();
+  if (!url) return "";
   // Strip accidental quotes from Vercel env UI copy-paste
   if (
     (url.startsWith('"') && url.endsWith('"')) ||
@@ -56,9 +58,46 @@ function normalizeDatabaseUrl(raw) {
 }
 
 function buildPoolConfig() {
+  const rawEnv = process.env.DATABASE_URL;
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.FUNCTION_NAME);
+
+  if (!rawEnv || !String(rawEnv).trim()) {
+    if (isProd) {
+      throw new Error(
+        "DATABASE_URL is required. Set it in the environment (Vercel Environment Variables or .env). " +
+        "Do not rely on a localhost default in production."
+      );
+    }
+    // Development only: explicit opt-in to local Postgres
+    if (process.env.ALLOW_LOCAL_DB === "true") {
+      console.warn("[eduvault] DATABASE_URL unset; ALLOW_LOCAL_DB=true → using postgresql://localhost/eduvault");
+    } else {
+      throw new Error(
+        "DATABASE_URL is required. Set DATABASE_URL in .env to your Supabase/Postgres URI. " +
+        "For local Postgres only, set ALLOW_LOCAL_DB=true (not recommended for production data)."
+      );
+    }
+  }
+
   const connectionString = normalizeDatabaseUrl(
-    process.env.DATABASE_URL || "postgresql://localhost/eduvault"
+    rawEnv && String(rawEnv).trim()
+      ? rawEnv
+      : "postgresql://localhost/eduvault"
   );
+
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required.");
+  }
+
+  // Production must never silently use localhost
+  if (isProd && /localhost|127\.0\.0\.1/.test(connectionString)) {
+    throw new Error(
+      "DATABASE_URL points at localhost, which is not valid in production/serverless. " +
+      "Set DATABASE_URL to your Supabase pooler URI (port 6543 recommended)."
+    );
+  }
 
   const isLocal =
     /localhost|127\.0\.0\.1/.test(connectionString) &&
@@ -497,6 +536,130 @@ async function ensureSubmissionSchema() {
  * Ordered database bootstrap. Call once at process start and await it
  * before seed admin / accepting traffic that needs schema.
  */
+
+async function ensureFeedbackAndQuizSchema() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS feedback_forms (
+        form_id TEXT PRIMARY KEY,
+        emp_id TEXT NOT NULL REFERENCES teachers(emp_id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        subject TEXT,
+        class_label TEXT,
+        deadline TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'draft',
+        published_at TIMESTAMP,
+        closed_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_feedback_forms_emp ON feedback_forms(emp_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS feedback_questions (
+        question_id TEXT PRIMARY KEY,
+        form_id TEXT NOT NULL REFERENCES feedback_forms(form_id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        question_type TEXT NOT NULL DEFAULT 'rating',
+        options_json JSONB,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        required BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_feedback_q_form ON feedback_questions(form_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS feedback_responses (
+        response_id TEXT PRIMARY KEY,
+        form_id TEXT NOT NULL REFERENCES feedback_forms(form_id) ON DELETE CASCADE,
+        answers_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        comment_text TEXT,
+        submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_feedback_resp_form ON feedback_responses(form_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS feedback_response_tokens (
+        form_id TEXT NOT NULL REFERENCES feedback_forms(form_id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (form_id, token_hash)
+      )`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS quizzes (
+        quiz_id TEXT PRIMARY KEY,
+        emp_id TEXT NOT NULL REFERENCES teachers(emp_id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        subject TEXT,
+        class_label TEXT,
+        instructions TEXT,
+        deadline TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'draft',
+        results_published BOOLEAN NOT NULL DEFAULT false,
+        published_at TIMESTAMP,
+        closed_at TIMESTAMP,
+        evaluated_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_quizzes_emp ON quizzes(emp_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS quiz_questions (
+        question_id TEXT PRIMARY KEY,
+        quiz_id TEXT NOT NULL REFERENCES quizzes(quiz_id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        marks NUMERIC(8,2) NOT NULL DEFAULT 1,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        correct_option_id TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_quiz_q_quiz ON quiz_questions(quiz_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS quiz_options (
+        option_id TEXT PRIMARY KEY,
+        question_id TEXT NOT NULL REFERENCES quiz_questions(question_id) ON DELETE CASCADE,
+        option_text TEXT NOT NULL,
+        display_order INTEGER NOT NULL DEFAULT 0
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_quiz_opt_q ON quiz_options(question_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS quiz_submissions (
+        submission_id TEXT PRIMARY KEY,
+        quiz_id TEXT NOT NULL REFERENCES quizzes(quiz_id) ON DELETE CASCADE,
+        roll_no TEXT NOT NULL,
+        student_name TEXT,
+        submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        total_marks NUMERIC(10,2),
+        scored_marks NUMERIC(10,2),
+        percentage NUMERIC(6,2),
+        evaluated BOOLEAN NOT NULL DEFAULT false,
+        UNIQUE (quiz_id, roll_no)
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_quiz_sub_quiz ON quiz_submissions(quiz_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_quiz_sub_roll ON quiz_submissions(roll_no)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS quiz_answers (
+        answer_id TEXT PRIMARY KEY,
+        submission_id TEXT NOT NULL REFERENCES quiz_submissions(submission_id) ON DELETE CASCADE,
+        question_id TEXT NOT NULL REFERENCES quiz_questions(question_id) ON DELETE CASCADE,
+        selected_option_id TEXT,
+        is_correct BOOLEAN,
+        marks_awarded NUMERIC(8,2),
+        UNIQUE (submission_id, question_id)
+      )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_quiz_ans_sub ON quiz_answers(submission_id)`);
+    console.log("✓ Feedback & Quiz schema ready");
+  
+    await pool.query(`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS drive_folder_id TEXT`);
+    await pool.query(`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS drive_quiz_file_id TEXT`);
+    await pool.query(`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS drive_results_file_id TEXT`);
+    await pool.query(`ALTER TABLE feedback_forms ADD COLUMN IF NOT EXISTS drive_folder_id TEXT`);
+    await pool.query(`ALTER TABLE feedback_forms ADD COLUMN IF NOT EXISTS drive_form_file_id TEXT`);
+    await pool.query(`ALTER TABLE quiz_submissions ADD COLUMN IF NOT EXISTS drive_file_id TEXT`);
+
+  } catch (err) {
+    console.warn("[eduvault] ensureFeedbackAndQuizSchema:", err.message);
+    throw err;
+  }
+}
+
 async function startDatabase() {
   await initializeDatabase();
   await ensureTeacherSchema();
@@ -504,6 +667,7 @@ async function startDatabase() {
   await ensureMaterialsDriveColumns();
   await ensureAccessLogsSchema();
   await ensureSubmissionSchema();
+  await ensureFeedbackAndQuizSchema();
   console.log("✓ Database migrations complete");
 }
 
@@ -1032,6 +1196,83 @@ async function revokeInvitation(id) {
   const updated = await pool.query(`SELECT * FROM invitations WHERE id = $1`, [id]);
   return sanitizeInvitation(updated.rows[0]);
 }
+
+async function deleteInvitation(id) {
+  const result = await pool.query(`SELECT * FROM invitations WHERE id = $1`, [id]);
+  if (!result.rows.length) throw new Error("Invitation not found.");
+  await pool.query(`DELETE FROM invitations WHERE id = $1`, [id]);
+  return sanitizeInvitation(result.rows[0]);
+}
+
+async function searchInvitations({ q = "", status = "", limit = 50, offset = 0 } = {}) {
+  const params = [];
+  const where = [];
+  if (q && String(q).trim()) {
+    params.push("%" + String(q).trim().toLowerCase() + "%");
+    const i = params.length;
+    where.push(`(LOWER(email) LIKE $${i} OR LOWER(COALESCE(name,'')) LIKE $${i} OR LOWER(COALESCE(employee_id,'')) LIKE $${i} OR LOWER(COALESCE(department,'')) LIKE $${i})`);
+  }
+  if (status === "pending") where.push("revoked_at IS NULL AND used_at IS NULL");
+  else if (status === "revoked") where.push("revoked_at IS NOT NULL");
+  else if (status === "used") where.push("used_at IS NOT NULL");
+  params.push(Math.max(1, Math.min(200, parseInt(limit, 10) || 50)));
+  params.push(Math.max(0, parseInt(offset, 10) || 0));
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+  const countRes = await pool.query(`SELECT COUNT(*)::int AS c FROM invitations ${whereSql}`, params.slice(0, -2));
+  const result = await pool.query(
+    `SELECT * FROM invitations ${whereSql} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return { total: countRes.rows[0].c, invitations: result.rows.map(sanitizeInvitation) };
+}
+
+async function searchTeachers({ q = "", limit = 50, offset = 0 } = {}) {
+  const params = [];
+  const where = [];
+  if (q && String(q).trim()) {
+    params.push("%" + String(q).trim().toLowerCase() + "%");
+    const i = params.length;
+    where.push(`(LOWER(emp_id) LIKE $${i} OR LOWER(name) LIKE $${i} OR LOWER(COALESCE(email,'')) LIKE $${i} OR LOWER(COALESCE(department,'')) LIKE $${i})`);
+  }
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+  params.push(Math.max(1, Math.min(200, parseInt(limit, 10) || 50)));
+  params.push(Math.max(0, parseInt(offset, 10) || 0));
+  const countRes = await pool.query(`SELECT COUNT(*)::int AS c FROM teachers ${whereSql}`, params.slice(0, -2));
+  const result = await pool.query(
+    `SELECT emp_id, name, department, subjects_handled, email, role, active, email_verified, seeded, created_at
+     FROM teachers ${whereSql} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return { total: countRes.rows[0].c, teachers: result.rows.map((t) => sanitizeTeacher(rowTeacher(t))) };
+}
+
+async function searchStudents({ q = "", limit = 50, offset = 0 } = {}) {
+  const params = [];
+  const where = [];
+  if (q && String(q).trim()) {
+    params.push("%" + String(q).trim().toLowerCase() + "%");
+    const i = params.length;
+    where.push(`(LOWER(roll_no) LIKE $${i} OR LOWER(name) LIKE $${i} OR LOWER(COALESCE(email,'')) LIKE $${i} OR LOWER(COALESCE(department,'')) LIKE $${i})`);
+  }
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+  params.push(Math.max(1, Math.min(200, parseInt(limit, 10) || 50)));
+  params.push(Math.max(0, parseInt(offset, 10) || 0));
+  const countRes = await pool.query(`SELECT COUNT(*)::int AS c FROM students ${whereSql}`, params.slice(0, -2));
+  const result = await pool.query(
+    `SELECT roll_no, name, department, semester, email, active, bookmarked_teachers, created_at
+     FROM students ${whereSql} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return {
+    total: countRes.rows[0].c,
+    students: result.rows.map((s) => {
+      try { return sanitizeStudent(s); } catch (_) {
+        return { roll_no: s.roll_no, name: s.name, department: s.department, semester: s.semester, email: s.email, active: s.active, bookmarked_teachers: [], created_at: s.created_at };
+      }
+    }),
+  };
+}
+
 
 async function markInvitationUsed(email) {
   const norm = normalizeEmail(email);
@@ -2116,6 +2357,28 @@ async function getSubmissionFileWithOwner(file_id) {
 }
 
 
+// V6 feedback/quiz helpers
+const _fq = require("./lib/feedbackQuizDb")({
+  pool,
+  newId,
+  findTeacher,
+  findStudent,
+  sanitizeTeacher,
+  sanitizeStudent,
+  rowTeacher,
+  getTeacherGoogleDrive,
+  updateTeacherGoogleDriveTokens,
+  updateTeacherGoogleDriveFolders,
+});
+const {
+  createFeedbackForm, getFeedbackForm, listFeedbackFormsByTeacher, listPublishedFeedbackForStudent,
+  updateFeedbackForm, publishFeedbackForm, closeFeedbackForm, deleteFeedbackForm,
+  submitAnonymousFeedback, hasStudentSubmittedFeedback, getFeedbackAggregates, listAllFeedbackFormsAdmin,
+  assertStudentCanAccessQuiz, assertStudentCanAccessFeedback,
+  createQuiz, getQuiz, listQuizzesByTeacher, listOpenQuizzesForStudent, updateQuiz, publishQuiz, closeQuiz, deleteQuiz,
+  setQuizCorrectAnswers, evaluateQuiz, publishQuizResults, submitQuizAttempt, listQuizResults, getStudentQuizResult,
+} = _fq;
+
 module.exports = {
   createTeacher,
   findTeacher,
@@ -2152,6 +2415,10 @@ module.exports = {
   listInvitations,
   findActiveInvitation,
   revokeInvitation,
+  deleteInvitation,
+  searchInvitations,
+  searchTeachers,
+  searchStudents,
   markInvitationUsed,
 
   startDatabase,
@@ -2193,4 +2460,11 @@ module.exports = {
   deleteSubmissionRecord,
   clearSubmissionFileDriveIds,
   getSubmissionFileWithOwner,
+
+  createFeedbackForm, getFeedbackForm, listFeedbackFormsByTeacher, listPublishedFeedbackForStudent,
+  updateFeedbackForm, publishFeedbackForm, closeFeedbackForm, deleteFeedbackForm,
+  submitAnonymousFeedback, hasStudentSubmittedFeedback, getFeedbackAggregates, listAllFeedbackFormsAdmin,
+  assertStudentCanAccessQuiz, assertStudentCanAccessFeedback,
+  createQuiz, getQuiz, listQuizzesByTeacher, listOpenQuizzesForStudent, updateQuiz, publishQuiz, closeQuiz, deleteQuiz,
+  setQuizCorrectAnswers, evaluateQuiz, publishQuizResults, submitQuizAttempt, listQuizResults, getStudentQuizResult,
 };

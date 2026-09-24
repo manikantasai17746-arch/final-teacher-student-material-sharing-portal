@@ -643,3 +643,59 @@ body { position: relative; overflow-x: hidden; }
   .site-footer > .site-footer-inner > div:not(.brand-col):not(.copy) { text-align: center; }
   .site-footer > .site-footer-inner > div:not(.brand-col):not(.copy) p { text-align: center; }
 }
+
+
+/* v6 mobile nav fix */
+@media (max-width: 768px) {
+  .topbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.5rem 0.75rem;
+  }
+  .topbar nav {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    justify-content: flex-start;
+  }
+  .topbar nav a, .btn-ghost-topbar {
+    font-size: 0.78rem;
+    padding: 0.35rem 0.55rem;
+  }
+  .topbar .who { display: none; }
+  .page { padding-left: 0.85rem; padding-right: 0.85rem; }
+  .list-item {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.5rem;
+  }
+  .list-item > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  table { display: block; overflow-x: auto; max-width: 100%; }
+  .card { overflow-x: auto; }
+}
+
+
+/* Large list internal scrolling (admin + results) */
+.admin-scroll-table {
+  max-height: 560px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid var(--line, #DCEAE8);
+  border-radius: 10px;
+  background: #fff;
+}
+.admin-scroll-table table.admin-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #F2F8F7;
+  box-shadow: 0 1px 0 var(--line, #DCEAE8);
+}
+@media (max-width: 640px) {
+  .admin-scroll-table { max-height: 420px; }
+}

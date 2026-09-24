@@ -63,6 +63,10 @@
 <script src="/js/scanner.js"></script>
 <script>
 document.getElementById("loginForm").addEventListener("submit", async (e) => {
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  const prevLabel = submitBtn ? submitBtn.textContent : "";
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Signing in..."; }
+
   e.preventDefault();
   const alertBox = document.getElementById("alertBox");
   alertBox.innerHTML = "";

@@ -11,6 +11,7 @@ const { requireAuth, getAuthFromRequest } = require("../lib/auth");
 const rateLimit = require("../lib/rateLimit");
 const { toSafeFilename } = require("../lib/filename");
 const gdrive = require("../lib/googleDrive");
+const { parseDeadlineInput } = require("../lib/datetime");
 
 const TEMP_DIR = path.join(os.tmpdir(), "eduvault-submissions-tmp");
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -85,7 +86,7 @@ router.post(
         emp_id: req.auth.sub,
         title: body.title,
         description: body.description,
-        deadline: body.deadline,
+        deadline: parseDeadlineInput(body.deadline),
         allow_multiple: !!body.allow_multiple,
         max_files: body.max_files,
         max_file_size_mb: body.max_file_size_mb,
@@ -139,7 +140,9 @@ router.patch(
   requireAuth(["teacher", "admin"]),
   async (req, res) => {
     try {
-      const request = await db.updateSubmissionRequest(req.params.id, req.auth.sub, req.body || {});
+      const body = Object.assign({}, req.body || {});
+      if (body.deadline !== undefined) body.deadline = parseDeadlineInput(body.deadline);
+      const request = await db.updateSubmissionRequest(req.params.id, req.auth.sub, body);
       return res.json({ request });
     } catch (e) {
       const status = /not authorized/i.test(e.message) ? 403 : 400;
@@ -638,6 +641,7 @@ router.get(
       const safeName = gdrive.sanitizeDriveName(file.original_name || "file");
       const ext = path.extname(safeName).toLowerCase();
       const inlineOk = new Set([".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".txt"]);
+      if (inlineOk.has(ext)) { res.removeHeader("X-Frame-Options"); res.set("Content-Security-Policy", "frame-ancestors 'self'"); }
       await gdrive.streamFileToResponse(accessToken, file.drive_file_id, res, {
         contentType: file.mime_type || "application/octet-stream",
         contentDispositionHeader: contentDisposition(
@@ -754,38 +758,51 @@ router.post(
           });
         }
 
-        // ZIP is valid — now delete Drive files
-        const failed = [];
-        let deleted = 0;
-        for (const d of downloaded) {
-          try {
-            await gdrive.deleteDriveFile(accessToken, d.drive_file_id);
-            deleted += 1;
-            // Clear drive ids in metadata (keep submission records)
-            await db.clearSubmissionFileDriveIds(d.file_id);
-          } catch (delErr) {
-            failed.push({ drive_file_id: d.drive_file_id, error: delErr.message });
-          }
-        }
-
-        // Stream ZIP to teacher
+        // ZIP is valid. Stream to client FIRST; only delete Drive files after
+        // the response finishes successfully. If the client aborts, do NOT delete.
+        const { contentDisposition } = require("../lib/filename");
         const zipName = gdrive.sanitizeDriveName(
           `EduVault_Archive_${request.title || request.request_id}.zip`,
           "archive.zip"
         );
-        const { contentDisposition } = require("../lib/filename");
         res.set("Content-Type", "application/zip");
         res.set("Content-Disposition", contentDisposition("attachment", zipName));
-        res.set("X-EduVault-Deleted", String(deleted));
-        res.set("X-EduVault-Failed", String(failed.length));
+        res.set("X-EduVault-Archive-Pending-Delete", String(downloaded.length));
+
         const stream = fs.createReadStream(tempZipPath);
-        stream.on("close", () => {
-          try { fs.unlinkSync(tempZipPath); } catch (_) {}
-          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
-        });
+        let finishedOk = false;
         stream.on("error", () => {
           try { fs.unlinkSync(tempZipPath); } catch (_) {}
           try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+          if (!res.headersSent) {
+            res.status(500).json({ error: "Failed to stream archive. No Drive files were deleted." });
+          } else {
+            try { res.end(); } catch (_) {}
+          }
+        });
+        res.on("finish", async () => {
+          finishedOk = true;
+          const failed = [];
+          let deleted = 0;
+          for (const d of downloaded) {
+            try {
+              await gdrive.deleteDriveFile(accessToken, d.drive_file_id);
+              deleted += 1;
+              await db.clearSubmissionFileDriveIds(d.file_id);
+            } catch (delErr) {
+              failed.push({ drive_file_id: d.drive_file_id, error: delErr.message });
+            }
+          }
+          console.log("[eduvault] archive stream finished; deleted", deleted, "failed", failed.length);
+          try { fs.unlinkSync(tempZipPath); } catch (_) {}
+          try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+        });
+        res.on("close", () => {
+          if (!finishedOk) {
+            console.warn("[eduvault] archive download aborted by client — Drive files NOT deleted");
+            try { fs.unlinkSync(tempZipPath); } catch (_) {}
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+          }
         });
         stream.pipe(res);
         return;
@@ -823,6 +840,56 @@ router.post(
     }
   }
 );
+
+
+router.post("/requests/:id/zip-keep", requireAuth("teacher"), async (req, res) => {
+  let tempDir = null, tempZipPath = null;
+  try {
+    const request = await db.getSubmissionRequest(req.params.id);
+    if (!request) return res.status(404).json({ error: "Request not found." });
+    if (String(request.emp_id).toLowerCase() !== String(req.auth.sub).toLowerCase()) return res.status(403).json({ error: "Not authorized." });
+    const listed = await db.listSubmissionsForRequest(request.request_id, req.auth.sub);
+    const submissions = (listed && listed.submissions) || listed || [];
+    const allFiles = [];
+    for (const sub of submissions) {
+      const files = await db.listSubmissionFiles(sub.submission_id);
+      for (const f of files) if (f.drive_file_id) allFiles.push({ ...f, roll_no: sub.roll_no });
+    }
+    if (!allFiles.length) return res.status(400).json({ error: "No files available to ZIP." });
+    const driveRow = await db.getTeacherGoogleDrive(req.auth.sub);
+    if (!driveRow) return res.status(400).json({ error: "Connect Google Drive first." });
+    const os = require("os"), fs = require("fs"), path = require("path"), crypto = require("crypto");
+    tempDir = path.join(os.tmpdir(), "eduvault-zipkeep-" + crypto.randomUUID());
+    fs.mkdirSync(tempDir, { recursive: true });
+    const { accessToken } = await gdrive.getValidAccessToken(driveRow, db);
+    const downloaded = [];
+    for (const f of allFiles) {
+      try {
+        const safeOrig = gdrive.sanitizeDriveName(f.original_name || "file");
+        const roll = (f.roll_no && String(f.roll_no).trim()) || "unknown";
+        const entryName = gdrive.sanitizeDriveName(roll + "_" + safeOrig, safeOrig);
+        const localPath = path.join(tempDir, crypto.randomUUID() + "_" + entryName);
+        await gdrive.downloadFileToPath(accessToken, f.drive_file_id, localPath);
+        downloaded.push({ localPath, entryName });
+      } catch (dlErr) { console.error("[eduvault] zip-keep download failed:", dlErr.message); }
+    }
+    if (!downloaded.length) { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(_){} return res.status(500).json({ error: "Could not download any files." }); }
+    tempZipPath = path.join(os.tmpdir(), "eduvault-zipkeep-" + request.request_id + "-" + Date.now() + ".zip");
+    await gdrive.createZipFromFiles(downloaded.map((d) => ({ path: d.localPath, name: d.entryName })), tempZipPath);
+    const { contentDisposition } = require("../lib/filename");
+    const zipName = gdrive.sanitizeDriveName("EduVault_Submissions_" + (request.title || request.request_id) + ".zip", "submissions.zip");
+    res.set("Content-Type", "application/zip");
+    res.set("Content-Disposition", contentDisposition("attachment", zipName));
+    const stream = fs.createReadStream(tempZipPath);
+    stream.pipe(res);
+    const cleanup = () => { try { if (tempZipPath) fs.unlinkSync(tempZipPath); } catch(_){} try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch(_){} };
+    stream.on("close", cleanup); stream.on("error", cleanup);
+  } catch (e) {
+    console.error("[eduvault] zip-keep:", e);
+    try { const fs = require("fs"); if (tempZipPath) fs.unlinkSync(tempZipPath); if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch(_){}
+    if (!res.headersSent) return res.status(500).json({ error: e.message || "ZIP failed." });
+  }
+});
 
 
 module.exports = router;

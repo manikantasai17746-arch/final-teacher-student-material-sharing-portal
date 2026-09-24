@@ -61,7 +61,12 @@
     </div>
 
     <div class="section-title"><h2>All Invitations</h2><span class="pill" id="codesCountPill">0</span></div>
-    <div class="table-wrap">
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0;align-items:center;">
+      <input type="search" id="invSearchInput" placeholder="Search invitations (email, name, ID, department, status)..." style="flex:1;min-width:200px;padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:8px;" aria-label="Search invitations">
+      <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('invSearchInput').value='';loadCodes();">Clear</button>
+      <span id="invSearchStatus" class="subtitle"></span>
+    </div>
+    <div class="table-wrap admin-scroll-table">
       <table class="admin-table">
         <thead>
           <tr><th>Email</th><th>Employee ID</th><th>Department</th><th>Status</th><th>Sent</th><th>Note</th><th>Actions</th></tr>
@@ -75,7 +80,12 @@
   <!-- ===================== EMPLOYEES ===================== -->
   <div class="tab-panel" id="panel-employees">
     <div class="section-title"><h2>Employees</h2><span class="pill" id="teachersCountPill">0</span></div>
-    <div class="table-wrap">
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0;align-items:center;">
+      <input type="search" id="teacherSearchInput" placeholder="Search teachers (name, email, employee ID, department)..." style="flex:1;min-width:200px;padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:8px;" aria-label="Search teachers">
+      <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('teacherSearchInput').value='';loadTeachers();">Clear</button>
+      <span id="teacherSearchStatus" class="subtitle"></span>
+    </div>
+    <div class="table-wrap admin-scroll-table">
       <table class="admin-table">
         <thead>
           <tr><th>Employee ID</th><th>Name</th><th>Department</th><th>Role</th><th>Status</th><th>Email Verified</th><th>Actions</th></tr>
@@ -89,7 +99,12 @@
   <!-- ===================== STUDENTS ===================== -->
   <div class="tab-panel" id="panel-students">
     <div class="section-title"><h2>Students</h2><span class="pill" id="studentsCountPill">0</span></div>
-    <div class="table-wrap">
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0;align-items:center;">
+      <input type="search" id="studentSearchInput" placeholder="Search students (name, roll number, email, department)..." style="flex:1;min-width:200px;padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:8px;" aria-label="Search students">
+      <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('studentSearchInput').value='';loadStudents();">Clear</button>
+      <span id="studentSearchStatus" class="subtitle"></span>
+    </div>
+    <div class="table-wrap admin-scroll-table">
       <table class="admin-table">
         <thead>
           <tr><th>Roll No</th><th>Name</th><th>Department</th><th>Semester</th><th>Status</th><th>Actions</th></tr>
@@ -156,7 +171,12 @@ function renderStats(codes, teachers, students) {
 
 // ---- Enrollment Codes ---------------------------------------------------
 async function loadCodes() {
-  const { invitations } = await api("/admin/invitations");
+  const q = (document.getElementById("invSearchInput") && document.getElementById("invSearchInput").value) || "";
+  const st = document.getElementById("invSearchStatus");
+  if (st) st.textContent = "Searching...";
+  const data = await api("/admin/invitations?q=" + encodeURIComponent(q) + "&limit=100&offset=0");
+  const invitations = data.invitations || [];
+  if (st) st.textContent = q ? ((data.total != null ? data.total : invitations.length) + " result(s)") : "";
   document.getElementById("codesCountPill").textContent = invitations.length;
   document.getElementById("codesEmpty").style.display = invitations.length ? "none" : "block";
   document.getElementById("codesTbody").innerHTML = invitations.map((c) => `
@@ -171,6 +191,7 @@ async function loadCodes() {
         ${c.status === "pending"
           ? `<button class="btn btn-danger btn-sm" onclick="revokeCode('${c.id}')">Revoke</button>`
           : `<span class="hint">—</span>`}
+        <button class="btn btn-outline btn-sm" onclick="deleteInvitation('${c.id}')">Delete</button>
       </td>
     </tr>
   `).join("");
@@ -203,6 +224,15 @@ document.getElementById("issueForm").addEventListener("submit", async (e) => {
   }
 });
 
+async function deleteInvitation(id) {
+  if (!confirm("Are you sure you want to delete this invitation?")) return;
+  try {
+    await api("/admin/invitations/" + id, { method: "DELETE" });
+    toast("Invitation deleted.");
+    await loadCodes();
+    await loadOverview();
+  } catch (err) { toast(err.message || "Could not delete invitation.", true); }
+}
 async function revokeCode(id) {
   if (!confirm("Revoke this invitation? The employee will no longer be able to request a code.")) return;
   try {
@@ -216,7 +246,12 @@ async function revokeCode(id) {
 
 // ---- Employees ---------------------------------------------------------
 async function loadTeachers() {
-  const { teachers } = await api("/admin/teachers");
+  const q = (document.getElementById("teacherSearchInput") && document.getElementById("teacherSearchInput").value) || "";
+  const st = document.getElementById("teacherSearchStatus");
+  if (st) st.textContent = "Searching...";
+  const data = await api("/admin/teachers?q=" + encodeURIComponent(q) + "&limit=100&offset=0");
+  const teachers = data.teachers || [];
+  if (st) st.textContent = q ? ((data.total != null ? data.total : teachers.length) + " result(s)") : "";
   document.getElementById("teachersCountPill").textContent = teachers.length;
   renderTeacherRows(teachers);
   return teachers;
@@ -288,9 +323,13 @@ async function removeTeacher(emp_id) {
 
 // ---- Students ------------------------------------------------------------
 async function loadStudents() {
-  const data = await api("/admin/students");
+  const q = (document.getElementById("studentSearchInput") && document.getElementById("studentSearchInput").value) || "";
+  const st = document.getElementById("studentSearchStatus");
+  if (st) st.textContent = "Searching...";
+  const data = await api("/admin/students?q=" + encodeURIComponent(q) + "&limit=100&offset=0");
   const students = Array.isArray(data.students) ? data.students : [];
-  document.getElementById("studentsCountPill").textContent = String(students.length);
+  if (st) st.textContent = q ? ((data.total != null ? data.total : students.length) + " result(s)") : "";
+  document.getElementById("studentsCountPill").textContent = String(data.total != null ? data.total : students.length);
   document.getElementById("studentsEmpty").style.display = students.length ? "none" : "block";
   document.getElementById("studentsTbody").innerHTML = students.map((s) => {
     const roll = String(s.roll_no || "");
@@ -365,6 +404,134 @@ async function refreshAll() {
 }
 
 refreshAll();
+</script>
+
+<div class="card" style="margin-top:1.25rem;">
+  <div class="section-title"><h3 style="font-size:1.05rem;">Bulk Import Teacher Invitations (Excel)</h3></div>
+  <p class="subtitle">Upload .xlsx / .xls / .csv with columns: Email, Name, Department, Employee ID. Preview first, then send.</p>
+  <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" aria-label="Excel file">
+  <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-outline btn-sm" onclick="previewExcelImport()">Preview</button>
+    <button type="button" class="btn btn-accent btn-sm" onclick="confirmExcelImport()" id="excelConfirmBtn" style="display:none;">Send All Valid Invitations</button>
+  </div>
+  <div id="excelPreview" style="margin-top:0.75rem;"></div>
+</div>
+<script>
+async function previewExcelImport() {
+  const file = document.getElementById("excelFile").files[0];
+  if (!file) { toast("Choose an Excel file first.", true); return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const token = (typeof getTeacherToken === "function" ? getTeacherToken() : null) || localStorage.getItem("eduvault_teacher_token") || localStorage.getItem("eduvault_token") || "";
+    const res = await fetch("/api/admin/invitations/import-excel", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Preview failed");
+    const s = data.summary || {};
+    document.getElementById("excelPreview").innerHTML = `
+      <p>Total: ${s.total || 0} · Valid: ${s.ok || 0} · Invalid: ${s.invalid || 0} · Duplicates: ${s.duplicate || 0} · Registered: ${s.registered || 0} · Existing invite: ${s.existing_invite || 0}</p>
+      <div style="max-height:260px;overflow:auto;"><table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+        <thead><tr><th>Row</th><th>Email</th><th>Name</th><th>Dept</th><th>Emp ID</th><th>Status</th><th>Reason</th></tr></thead>
+        <tbody>${(data.rows || []).map((r) => `<tr>
+          <td>${r.row}</td><td>${escapeHtml(r.email)}</td><td>${escapeHtml(r.name || "")}</td>
+          <td>${escapeHtml(r.department || "")}</td><td>${escapeHtml(r.employee_id || "")}</td>
+          <td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.reason || "")}</td></tr>`).join("")}
+        </tbody></table></div>`;
+    document.getElementById("excelConfirmBtn").style.display = (s.ok > 0) ? "inline-block" : "none";
+  } catch (e) { toast(e.message, true); }
+}
+async function confirmExcelImport() {
+  const file = document.getElementById("excelFile").files[0];
+  if (!file) return;
+  if (!confirm("Send invitation emails to all valid rows?")) return;
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("confirm", "true");
+  try {
+    const token = (typeof getTeacherToken === "function" ? getTeacherToken() : null) || localStorage.getItem("eduvault_teacher_token") || localStorage.getItem("eduvault_token") || "";
+    const res = await fetch("/api/admin/invitations/import-excel?confirm=true", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Import failed");
+    const r = data.report || {};
+    document.getElementById("excelPreview").innerHTML = `<p><strong>${escapeHtml(data.message || "")}</strong></p>
+      <p>Sent: ${r.successful || 0} · Skipped: ${(r.skipped || []).length} · Failed: ${(r.failed || []).length}</p>`;
+    document.getElementById("excelConfirmBtn").style.display = "none";
+    toast("Bulk invitations processed.");
+    if (typeof loadCodes === "function") await loadCodes();
+  } catch (e) { toast(e.message, true); }
+}
+</script>
+
+
+<div class="card" style="margin-top:1.25rem;">
+  <div class="section-title"><h3 style="font-size:1.05rem;">Feedback Reports</h3></div>
+  <p class="subtitle">Anonymous teaching evaluation aggregates (no student identity).</p>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+    <input type="search" id="adminFbSearch" placeholder="Search title, subject, teacher..." style="min-width:200px;padding:0.4rem 0.6rem;border:1px solid var(--line);border-radius:8px;">
+    <button type="button" class="btn btn-outline btn-sm" onclick="loadAdminFeedback()">Search</button>
+  </div>
+  <div id="adminFbList" class="list"></div>
+  <div id="adminFbPanel"></div>
+</div>
+<script>
+async function loadAdminFeedback() {
+  try {
+    const q = (document.getElementById("adminFbSearch") && document.getElementById("adminFbSearch").value) || "";
+    const data = await api("/feedback/admin/list?q=" + encodeURIComponent(q) + "&limit=50");
+    const forms = data.forms || [];
+    const el = document.getElementById("adminFbList");
+    if (!forms.length) { el.innerHTML = '<div class="empty">No feedback forms found.</div>'; return; }
+    el.innerHTML = forms.map((f) => `
+      <div class="list-item">
+        <div><strong>${escapeHtml(f.title)}</strong>
+          <div class="sub">${escapeHtml(f.teacher_name || "")} · ${escapeHtml(f.subject || "")} · ${escapeHtml(f.class_label || "")} · ${escapeHtml(f.status)} · Responses: ${f.response_count || 0}</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="viewAdminFb('${f.form_id}')">View Report</button>
+      </div>`).join("");
+  } catch (e) {
+    document.getElementById("adminFbList").innerHTML = '<div class="empty">Could not load feedback reports.</div>';
+  }
+}
+async function viewAdminFb(id) {
+  try {
+    const data = await api("/feedback/" + encodeURIComponent(id) + "/results");
+    let html = `<div class="card"><h3>${escapeHtml(data.form.title)}</h3>
+      <p class="subtitle">Responses: ${data.response_count} (anonymous)</p>`;
+    for (const a of data.aggregates || []) {
+      html += `<div style="margin:0.5rem 0;"><strong>${escapeHtml(a.question_text)}</strong><ul>`;
+      for (const [k,v] of Object.entries(a.counts || {})) html += `<li>${escapeHtml(k)}: ${v}</li>`;
+      html += `</ul></div>`;
+    }
+    if (data.comments && data.comments.length) {
+      html += `<h4>Anonymous comments</h4><ul>` + data.comments.map((c) => `<li>${escapeHtml(c)}</li>`).join("") + `</ul>`;
+    }
+    html += `</div>`;
+    document.getElementById("adminFbPanel").innerHTML = html;
+  } catch (e) { toast(e.message, true); }
+}
+loadAdminFeedback();
+</script>
+
+<script>
+(function wireAdminSearch() {
+  function debounce(fn, ms) {
+    let t; return function() { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); };
+  }
+  const inv = document.getElementById("invSearchInput");
+  if (inv) inv.addEventListener("input", debounce(() => loadCodes().catch(() => {}), 350));
+  const te = document.getElementById("teacherSearchInput");
+  if (te) te.addEventListener("input", debounce(() => loadTeachers().catch(() => {}), 350));
+  const st = document.getElementById("studentSearchInput");
+  if (st) st.addEventListener("input", debounce(() => loadStudents().catch(() => {}), 350));
+})();
 </script>
 </body>
 </html>

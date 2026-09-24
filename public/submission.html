@@ -73,7 +73,7 @@
                 accept="${escapeHtml(formMeta.allowed_extensions || "")}"
                 ${f.required ? "required" : ""} data-field-id="${escapeHtml(f.field_id)}">
               <p class="subtitle" style="font-size:0.8rem;margin:0.3rem 0 0;">
-                Max ${formMeta.max_files} file(s), ${formMeta.max_file_size_mb} MB each.
+                Select up to ${formMeta.max_files} file(s). Max ${formMeta.max_file_size_mb} MB each.
                 Allowed: ${escapeHtml(formMeta.allowed_extensions || "")}
               </p>
             </div>`;
@@ -120,6 +120,62 @@
       </div>`;
 
     document.getElementById("submitForm").addEventListener("submit", onSubmit);
+    (function setupFilePicker() {
+      const input = document.querySelector('input[type="file"][name="files"]');
+      if (!input) return;
+      const maxF = formMeta.max_files || 1;
+      const wrap = input.parentElement;
+      let list = document.getElementById("selectedFilesList");
+      if (!list) {
+        list = document.createElement("div");
+        list.id = "selectedFilesList";
+        list.style.marginTop = "0.5rem";
+        wrap.appendChild(list);
+      }
+      let hint = document.getElementById("fileCountHint");
+      if (!hint) {
+        hint = document.createElement("div");
+        hint.id = "fileCountHint";
+        hint.className = "subtitle";
+        wrap.appendChild(hint);
+      }
+      let dt = new DataTransfer();
+      function refresh() {
+        list.innerHTML = "";
+        Array.from(dt.files).forEach((f, i) => {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;gap:0.5rem;margin:0.25rem 0;";
+          row.innerHTML = "<span>✓ " + escapeHtml(f.name) + " <span class=\"hint\">(" + (f.size/1024/1024).toFixed(2) + " MB)</span></span>";
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "btn btn-outline btn-sm";
+          rm.textContent = "Remove";
+          rm.onclick = () => {
+            const next = new DataTransfer();
+            Array.from(dt.files).forEach((file, j) => { if (j !== i) next.items.add(file); });
+            dt = next;
+            input.files = dt.files;
+            refresh();
+          };
+          row.appendChild(rm);
+          list.appendChild(row);
+        });
+        hint.textContent = dt.files.length + " / " + maxF + " files selected";
+      }
+      input.addEventListener("change", () => {
+        const incoming = Array.from(input.files || []);
+        for (const f of incoming) {
+          if (dt.files.length >= maxF) break;
+          let dup = false;
+          for (const e of dt.files) if (e.name === f.name && e.size === f.size) dup = true;
+          if (!dup) dt.items.add(f);
+        }
+        input.files = dt.files;
+        refresh();
+      });
+      refresh();
+    })();
+
   }
 
   async function onSubmit(e) {

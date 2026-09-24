@@ -39,6 +39,8 @@ const adminRoutes = require("./routes/admin");
 const authRoutes = require("./routes/auth");
 const googleDriveRoutes = require("./routes/googleDrive");
 const submissionRoutes = require("./routes/submissions");
+const feedbackRoutes = require("./routes/feedback");
+const quizRoutes = require("./routes/quizzes");
 const db = require("./db");
 const storage = require("./lib/storage");
 
@@ -61,8 +63,20 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 // Basic security headers on every response.
 app.use((req, res, next) => {
   res.set("X-Content-Type-Options", "nosniff");
-  res.set("X-Frame-Options", "DENY");
   res.set("Referrer-Policy", "no-referrer-when-downgrade");
+  const p = (req.path || "") + " " + (req.originalUrl || "");
+  // Same-origin iframe preview for PDF/images via authenticated view routes.
+  // Use CSP frame-ancestors only (do not send DENY) so Chromium trusts the embed.
+  const isPreview =
+    /\/api\/materials\/view\//i.test(p) ||
+    /\/api\/submissions\/.*\/(view|file)/i.test(p) ||
+    /\/api\/submissions\/files\//i.test(p);
+  if (isPreview) {
+    res.set("Content-Security-Policy", "frame-ancestors 'self'");
+    res.removeHeader("X-Frame-Options");
+  } else {
+    res.set("X-Frame-Options", "DENY");
+  }
   next();
 });
 
@@ -121,6 +135,8 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/google-drive", googleDriveRoutes);
 app.use("/api/submissions", submissionRoutes);
+app.use("/api/feedback", feedbackRoutes);
+app.use("/api/quizzes", quizRoutes);
 
 // Public student submission page: /submit/<token>
 app.get("/submit/:token", (req, res) => {
