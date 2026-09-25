@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://final-teacher-student-material-shar.vercel.app/sitemap.xml
