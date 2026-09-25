@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <link rel="icon" type="image/png" href="/favicon.png">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Teacher Dashboard — EduVault · Aditya University</title>
@@ -474,11 +475,15 @@ document.getElementById("cancelRequestBtn").addEventListener("click", () => {
 
 document.getElementById("requestForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+
   const alertBox = document.getElementById("requestFormAlert");
+
   const body = {
     title: document.getElementById("reqTitle").value.trim(),
     description: document.getElementById("reqDesc").value.trim(),
-    deadline: document.getElementById("reqDeadline").value || null,
+    deadline: document.getElementById("reqDeadline").value
+      ? new Date(document.getElementById("reqDeadline").value).toISOString()
+      : null,
     max_files: parseInt(document.getElementById("reqMaxFiles").value, 10) || 1,
     max_file_size_mb: parseInt(document.getElementById("reqMaxSize").value, 10) || 25,
     allow_multiple: document.getElementById("reqAllowMultiple").value === "true",
@@ -957,7 +962,9 @@ async function saveQuiz(publish) {
       subject: document.getElementById("quizSubject").value,
       class_label: document.getElementById("quizClass").value,
       instructions: document.getElementById("quizInstructions").value,
-      deadline: document.getElementById("quizDeadline").value || null,
+      deadline: document.getElementById("quizDeadline").value
+        ? new Date(document.getElementById("quizDeadline").value).toISOString()
+        : null,
       questions: collected,
     };
     if (!payload.title || !payload.title.trim()) throw new Error("Title is required.");
@@ -1169,7 +1176,9 @@ async function saveFeedback(publish) {
       title: document.getElementById("fbTitle").value,
       subject: document.getElementById("fbSubject").value,
       class_label: document.getElementById("fbClass").value,
-      deadline: document.getElementById("fbDeadline").value || null,
+      deadline: document.getElementById("fbDeadline").value
+        ? new Date(document.getElementById("fbDeadline").value).toISOString()
+        : null,
       questions: _fbQs.filter((q) => q.question_text).map((q) => ({
         question_text: q.question_text,
         question_type: "rating",
